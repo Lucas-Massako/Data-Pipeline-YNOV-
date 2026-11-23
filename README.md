@@ -9,7 +9,7 @@ Base PostgreSQL 17 (Docker) construite à partir des quatre fichiers de `s1/donn
 Prérequis : Docker Desktop lancé. Toutes les commandes se tapent depuis `novamarket/`.
 
 ```bash
-bash run_s1.sh          # démarre PostgreSQL, recrée le schéma, importe, écrit les preuves
+bash run_s1.sh        
 ```
 
 Pour lancer les scripts un par un :
@@ -131,9 +131,3 @@ Le script `06_normalisation_A1.sql` reprend `planning_a_normaliser.csv`, où nom
 
 La version normalisée sépare `salles` (salle_id, nom, responsable) et `reservations` (reservation_id, salle_id en clé étrangère), ce qui supprime les trois anomalies.
 
-## État du projet et limites
-
-- Socle M1 à M4 terminé, A1 fourni. Les scripts ont été rejoués deux fois sans écart.
-- Les remboursements ne figurent pas dans les sources : l'argent encaissé sur des commandes annulées reste à expliquer avec le métier.
-- `products.csv` et `categories.csv` sont présents, mais le catalogue est hors périmètre S1 ; ils sont prévus pour la suite.
-- Les identifiants de `compose.yaml` ne servent qu'à l'atelier local.
