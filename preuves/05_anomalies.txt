@@ -1,0 +1,55 @@
+=== A1. Doublons de lignes d'articles (réception) ===
+ order_item_id | order_id | product_id | quantity | unit_price_cents | occurrences | lignes_reception 
+---------------+----------+------------+----------+------------------+-------------+------------------
+ 7             | 4        | 5          | 3        | 1125             |           2 | {7,801}
+(1 row)
+
+--- A1 bis. Paiements identiques sur une même commande : vrais doublons ? ---
+ commandes_concernees | dont_somme_egale_total_articles 
+----------------------+---------------------------------
+                   27 |                              27
+(1 row)
+
+=== A2. Références orphelines (réception) ===
+         lien          | ligne_id | cle | reference 
+-----------------------+----------+-----+-----------
+ order_items -> orders |      802 | 801 | 9999
+(1 row)
+
+=== A3. Multiplication des montants : jointure directe articles x paiements ===
+               methode               | ca_articles_euros | paiements_euros | lignes_produites 
+-------------------------------------+-------------------+-----------------+------------------
+ jointure directe (FAUX)             |          29472.50 |        52420.00 |              720
+ pré-agrégation par commande (JUSTE) |          26210.00 |        26210.00 |              320
+(2 rows)
+
+--- A3 bis. Exemple concret : commandes completed avec 2 paiements ---
+ order_id | nb_articles | nb_paiements | vrai_total_cents | total_apres_jointure_cents 
+----------+-------------+--------------+------------------+----------------------------
+        5 |           2 |            2 |             5500 |                      11000
+       15 |           2 |            2 |            15125 |                      30250
+       25 |           2 |            2 |             3875 |                       7750
+       35 |           2 |            2 |             7750 |                      15500
+       45 |           2 |            2 |             9875 |                      19750
+(5 rows)
+
+=== A4. Impact du statut de commande sur le CA (lignes d'articles) ===
+           perimetre           | ca_euros 
+-------------------------------+----------
+ completed uniquement (retenu) | 26210.00
+ completed + pending           | 29433.75
+ tous statuts (y c. cancelled) | 32717.50
+(3 rows)
+
+--- A4 bis. Argent encaissé sur des commandes annulées ---
+ commandes_annulees_encaissees | encaisse_euros 
+-------------------------------+----------------
+                            40 |        3283.75
+(1 row)
+
+=== A5. Impact du doublon de ligne s'il n'avait pas été rejeté (commande 4) ===
+ total_brut_cents | total_nettoye_cents | paye_cents 
+------------------+---------------------+------------
+             8750 |                5375 |       5375
+(1 row)
+

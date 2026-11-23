@@ -1,0 +1,46 @@
+BEGIN
+CREATE TABLE
+COPY 3
+--- État initial (nom et responsable répétés à chaque réservation) ---
+ reservation_id | salle_id |     salle_nom     | responsable 
+----------------+----------+-------------------+-------------
+              1 |        1 | Atelier Céramique | Ariane
+              2 |        1 | Atelier Céramique | Ariane
+              3 |        2 | Atelier Textile   | Sam
+(3 rows)
+
+--- Anomalie de MISE À JOUR : on change le responsable sur une seule ligne ---
+UPDATE 1
+ salle_id |     salle_nom     |  responsables  
+----------+-------------------+----------------
+        1 | Atelier Céramique | {Ariane,Bilal}
+        2 | Atelier Textile   | {Sam}
+(2 rows)
+
+--- Anomalie d'INSERTION : impossible de créer une salle sans réservation ---
+SAVEPOINT
+ERROR:  null value in column "reservation_id" of relation "planning" violates not-null constraint
+DETAIL:  Failing row contains (null, 3, Atelier Photo, Inès).
+ROLLBACK
+--- Anomalie de SUPPRESSION : supprimer la dernière réservation fait disparaître la salle ---
+DELETE 1
+ salle_id |     salle_nom     
+----------+-------------------
+        1 | Atelier Céramique
+(1 row)
+
+--- Correction : schéma normalisé (3FN) ---
+CREATE TABLE
+CREATE TABLE
+INSERT 0 3
+INSERT 0 3
+UPDATE 1
+DELETE 1
+ salle_id |        nom        | responsable | reservations 
+----------+-------------------+-------------+--------------
+        1 | Atelier Céramique | Bilal       |            2
+        2 | Atelier Textile   | Sam         |            0
+        3 | Atelier Photo     | Inès        |            0
+(3 rows)
+
+ROLLBACK

@@ -1,0 +1,28 @@
+=== I1. Commandes par statut ===
+  status   | nb_commandes | pct  
+-----------+--------------+------
+ completed |          320 | 80.0
+ cancelled |           40 | 10.0
+ pending   |           40 | 10.0
+(3 rows)
+
+=== I2. Clients sans aucune commande ===
+ clients_sans_commande | clients_total 
+-----------------------+---------------
+                    30 |           180
+(1 row)
+
+=== I3. CA des lignes des commandes terminées (completed) et panier moyen ===
+ ca_cents | ca_euros | nb_commandes_denominateur | panier_moyen_euros 
+----------+----------+---------------------------+--------------------
+  2621000 | 26210.00 |                       320 |              81.91
+(1 row)
+
+=== I4. Rapprochement articles / paiements, par commande puis par statut ===
+ statut_commande | nb_commandes | articles_euros | encaisse_euros | en_attente_euros | commandes_equilibrees | nb_paiements 
+-----------------+--------------+----------------+----------------+------------------+-----------------------+--------------
+ cancelled       |           40 |        3283.75 |        3283.75 |             0.00 |                    40 |           80
+ completed       |          320 |       26210.00 |       26210.00 |             0.00 |                   320 |          360
+ pending         |           40 |        3223.75 |           0.00 |          3223.75 |                    40 |           40
+(3 rows)
+
