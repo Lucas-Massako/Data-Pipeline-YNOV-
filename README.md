@@ -218,11 +218,3 @@ Jeu isolé `benchmark.benchmark_sales` (10 000 000 lignes, environ 500 Mo) ; ses
 | D9 | Population de la segmentation | Clients avec au moins un achat terminé (120) ; égalités départagées par `customer_id` |
 | D10 | Ex æquo des classements | `RANK()` : rang partagé puis saut |
 | D11 | Index retenu | B-tree sur `store_id`, utile pour les magasins peu fréquents ; inutile pour le magasin 1 |
-
-## État du projet et limites
-
-- S1 : socle M1 à M5 terminé, A1 fourni. S2 : M1 à M5 terminés (A1 couvert par NTILE et WITH RECURSIVE). S3 : benchmark, index et analyse critique terminés. Tous les scripts ont été rejoués deux fois sans écart.
-- Les remboursements ne figurent pas dans les sources : l'argent encaissé sur des commandes annulées reste à expliquer avec le métier.
-- Novembre est un mois incomplet (données jusqu'au 19/11) : à ne pas comparer en valeur brute.
-- Les temps du benchmark ne valent que pour le poste qui les a mesurés.
-- Les identifiants de `compose.yaml` ne servent qu'à l'atelier local.
