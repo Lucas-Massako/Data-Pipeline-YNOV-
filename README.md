@@ -1,45 +1,60 @@
-# NovaMarket — S1 : SQL relationnel et premiers indicateurs
+# NovaMarket — S1 et S2 (SQL relationnel, SQL avancé, benchmark)
 
-Base PostgreSQL 17 (Docker) construite à partir des quatre fichiers de `s1/donnees/`. Tous les montants sont en **centimes** (`integer`) et ne sont convertis en euros qu'à l'affichage.
+**Auteur :** Lucas Massako — M1 Data IA, YNOV
 
 ## Exécution
 
-Prérequis : Docker Desktop lancé. Toutes les commandes se tapent depuis `novamarket/`.
+Prérequis : Docker Desktop lancé. Toutes les commandes se lancent depuis `novamarket/`, dans cet ordre :
 
 ```bash
-bash run_s1.sh          # démarre PostgreSQL, recrée le schéma, importe, écrit les preuves
+bash run_s1.sh    # S1 : schéma, import des ventes, contrôles, indicateurs, anomalies
+bash run_s2.sh    # S2 : catalogue et analyses avancées (dépend de S1)
+bash run_s3.sh    # Benchmark : génération des 10 000 000 lignes et mesures
 ```
 
-Pour lancer les scripts un par un :
+Chaque script écrit ses résultats dans `preuves/`. `run_s1.sh` recrée les schémas `reception` et `metier` : il faut ensuite relancer `run_s2.sh`.
 
-```bash
-docker compose up -d --wait postgres
-docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U atelier -d novamarket < sql/01_schema.sql
-docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U atelier -d novamarket < sql/02_import.sql
-docker compose exec -T postgres psql -X -U atelier -d novamarket < sql/03_controles.sql
-```
+| Fichier | Contenu |
+|---|---|
+| `sql/01_schema.sql` | DDL : schémas `reception`, `metier`, table `reception.rejets` |
+| `sql/02_import.sql` | Import CSV / NDJSON, rejets, intégration |
+| `sql/03_controles.sql` | Comptages et journal des rejets |
+| `sql/04_indicateurs.sql` | Indicateurs S1 |
+| `sql/05_anomalies.sql` | Anomalies S1 |
+| `sql/06_normalisation_A1.sql` | Approfondissement S1 (normalisation) |
+| `sql/07_catalogue.sql` | DDL et import du catalogue |
+| `sql/08_controles_catalogue.sql` | Comptages et anomalies du catalogue |
+| `sql/09_analyses_avancees.sql` | `RANK`, `LAG` / `LEAD`, CTE, `NTILE`, `WITH RECURSIVE` |
+| `s3/generer.sql` | Générateur fourni (schéma `benchmark`) |
+| `sql/10_benchmark_mesures.sql` | Plans, script d'index, mesures |
 
-| Fichier | Rôle | Mission |
+## État du projet
+
+| Séance | Mission | État |
 |---|---|---|
-| `sql/01_schema.sql` | Schémas `reception` (brut, texte) et `metier` (typé, contraint), table `reception.rejets` | M1, M2 |
-| `sql/02_import.sql` | `\copy` CSV/NDJSON → réception → journal des rejets → métier, dans une seule transaction | M2 |
-| `sql/03_controles.sql` | Volumes reçus / intégrés / rejetés, journal des rejets, contrôles de cohérence | M2, M5 |
-| `sql/04_indicateurs.sql` | Commandes par statut, clients sans commande, CA, panier moyen, rapprochement des paiements | M3 |
-| `sql/05_anomalies.sql` | Doublons, orphelins, multiplication des montants par jointure, effet du statut sur le CA | M4 |
-| `sql/06_normalisation_A1.sql` | Anomalies d'insertion, de mise à jour et de suppression, puis version normalisée (tout est annulé par ROLLBACK) | A1 |
-| `.env` | Port hôte (`15432`) et sous-réseau Docker, à modifier en cas de conflit | — |
+| S1 | M1 à M5, A1 | Terminé |
+| S2 | M1 à M4, A1 | Terminé |
 
-Les scripts sont **rejouables** : `01` recrée les schémas et `02` vide puis recharge. Les fichiers bruts de `s1/` ne sont jamais modifiés, car ils sont montés en lecture seule.
+---
+
+# S1
 
 ## M1 — Modèle relationnel
 
-Grain de chaque source : une ligne = un client, une commande, une ligne d'article ou une opération de paiement.
+| Source | Grain | Lignes |
+|---|---|---:|
+| `customers.csv` | un client | 180 |
+| `orders.csv` | une commande | 400 |
+| `order_items.csv` | une ligne d'article | 802 |
+| `payments.ndjson` | une opération de paiement | 480 |
+
+Relations : un client a N commandes ; une commande a N lignes d'article et N paiements.
 
 ```mermaid
 erDiagram
-    customers ||--o{ orders : "passe (1-N)"
-    orders ||--|{ order_items : "contient (1-N)"
-    orders ||--|{ payments : "est réglée par (1-N)"
+    customers ||--o{ orders : "1-N"
+    orders ||--|{ order_items : "1-N"
+    orders ||--|{ payments : "1-N"
     customers { int customer_id PK
                 text customer_name
                 text city }
@@ -49,7 +64,7 @@ erDiagram
              text status "completed|pending|cancelled" }
     order_items { int order_item_id PK
                   int order_id FK
-                  int product_id "pas de FK (catalogue hors S1)"
+                  int product_id FK
                   int quantity ">0"
                   int unit_price_cents ">0" }
     payments { int payment_id PK
@@ -59,16 +74,15 @@ erDiagram
                text status "captured|pending" }
 ```
 
-L'ordre d'import suit les dépendances : `customers` → `orders` → `order_items` et `payments`.
+Ordre d'import : `customers` → `orders` → `order_items` → `payments`.
 
-**Choix de conception justifiés**
+Réception : tables `reception.*` en `text`, sans contrainte, avec un `ligne_id` par ligne lue. Les lignes invalides sont écrites dans `reception.rejets` avec leur motif.
 
-1. **Réception en texte, puis métier contraint.** Les tables `reception.*` n'ont ni types ni contraintes, donc aucune ligne ne peut faire échouer le `\copy`. Chaque ligne garde un `ligne_id` (sa position dans le fichier). Les règles sont ensuite vérifiées en SQL. Une ligne invalide va dans `reception.rejets`, avec son motif et son contenu brut, au lieu d'arrêter l'import ou de disparaître. On peut ainsi toujours vérifier que reçus = intégrés + rejetés.
-2. **Montants en `integer` (centimes) et prix stocké sur la ligne.** On évite les erreurs d'arrondi des flottants. `unit_price_cents` est le prix au moment de l'achat : il reste sur la ligne d'article et n'est pas déduit d'un catalogue. C'est aussi pourquoi `product_id` n'a pas de clé étrangère (le catalogue est hors périmètre S1).
+**Choix 1 — Réception en texte avant le schéma métier.** Aucune ligne n'est perdue au chargement et chaque rejet est tracé avec sa cause.
 
-Autres contraintes : clés primaires sur chaque identifiant source, clés étrangères vers `orders` et `customers`, `CHECK` sur les statuts (sensibles à la casse) et sur les valeurs strictement positives, index sur les clés étrangères.
+**Choix 2 — Montants en `integer` (centimes).** Les sources sont en centimes ; un entier évite les erreurs d'arrondi.
 
-## M2 — Volumes
+## M2 — Comptages et rejets
 
 | Source | Reçus | Intégrés | Rejetés |
 |---|---:|---:|---:|
@@ -77,48 +91,92 @@ Autres contraintes : clés primaires sur chaque identifiant source, clés étran
 | order_items.csv | 802 | 800 | 2 |
 | payments.ndjson | 480 | 480 | 0 |
 
-**Journal des rejets** (`reception.rejets`)
-
 | Source | Ligne | Clé | Motif |
 |---|---:|---|---|
-| order_items.csv | 801 | order_item_id 7 | doublon de `order_item_id` (même commande 4, même produit, mêmes valeurs ; 1re occurrence conservée) |
-| order_items.csv | 802 | order_item_id 801 | commande 9999 inexistante (référence orpheline) |
+| order_items.csv | 801 | order_item_id 7 | doublon de `order_item_id` |
+| order_items.csv | 802 | order_item_id 801 | commande 9999 inexistante |
 
 ## M3 — Indicateurs
 
-| Indicateur | Résultat | Hypothèse / dénominateur |
+| Indicateur | Résultat | Hypothèse |
 |---|---|---|
-| Commandes par statut | completed 320 (80 %), pending 40, cancelled 40 | 400 commandes intégrées |
-| Clients sans commande | 30 sur 180 | `NOT EXISTS` sur `orders` |
-| CA des lignes des commandes terminées | **26 210,00 €** (2 621 000 centimes) | Σ `quantity × unit_price_cents`, statut `completed` uniquement |
-| Panier moyen | **81,91 €** | CA ÷ **320 commandes completed** (pas ÷ 800 lignes, pas ÷ 360 paiements) |
-| Encaissé sur commandes completed | 26 210,00 € | Paiements `captured`, agrégés par commande avant la jointure |
+| Commandes par statut | completed 320, pending 40, cancelled 40 | — |
+| Clients sans commande | 30 | — |
+| Montant des lignes des commandes terminées | 26 210,00 € | statut `completed` |
+| Panier moyen | 81,91 € | dénominateur : 320 commandes `completed` |
+| Paiements `captured` des commandes terminées | 26 210,00 € | agrégés par commande avant jointure |
 
-**Contrôle de cohérence** : après rejet du doublon, les 400 commandes ont un total d'articles égal à la somme de leurs paiements (les deux sont agrégés par commande). Les commandes completed sont entièrement `captured`, les commandes pending entièrement `pending`.
+Vérification de cohérence : pour les 400 commandes, total des articles = total des paiements.
 
 ## M4 — Anomalies
 
-| Anomalie | Détection | Effet si on l'ignore | Décision |
+| Anomalie | Détection | Effet | Décision |
 |---|---|---|---|
-| Ligne d'article en double (id 7, commande 4) | `GROUP BY` sur toutes les colonnes, `HAVING count(*) > 1` | Commande 4 à 87,50 € au lieu de 53,75 €, alors que 53,75 € ont été payés ; CA surévalué de 33,75 € | Rejet de la 2e occurrence, tracé dans le journal |
-| Ligne d'article orpheline (commande 9999) | `NOT EXISTS` vers `orders` | Montant de 6,25 € rattaché à aucune commande ; la clé étrangère bloquerait l'import | Rejet, tracé dans le journal |
-| Jointure directe articles × paiements | Comparer avec une agrégation préalable par commande | Lignes multipliées : 720 au lieu de 320 ; CA 29 472,50 € au lieu de 26 210 € (+12 %) ; paiements 52 420 € au lieu de 26 210 € (×2) | Toujours agréger chaque table par commande **avant** de joindre |
-| Paiements en deux fois de même montant (ex. commande 5 : 2 × 27,50 €) | `GROUP BY order_id, montant, date` | Les supprimer comme faux doublons sous-évaluerait les encaissements | **Conservés** : `payment_id` distincts et somme égale au total des articles |
-| Commandes annulées mais encaissées (40 commandes, 3 283,75 € captured) | Jointure `orders.status = 'cancelled'` et `payments.status = 'captured'` | Gonfle l'encaissé si on ne filtre pas sur le statut de la commande ; remboursements absents des sources | Exclues du CA, signalées au métier (remboursements à confirmer) |
-| Périmètre du CA selon le statut | Même calcul avec trois filtres | completed 26 210 € / + pending 29 433,75 € / tous statuts 32 717,50 € | CA retenu = `completed` ; pending suivi à part |
+| Doublon de ligne (id 7, commande 4) | `GROUP BY … HAVING count(*) > 1` | commande 4 : 87,50 € au lieu de 53,75 € | rejet |
+| Référence orpheline (commande 9999) | `NOT EXISTS` vers `orders` | 6,25 € sans commande | rejet |
+| Jointure articles × paiements | comparaison avec agrégation préalable | 720 lignes au lieu de 320 ; CA 29 472,50 € au lieu de 26 210 € | agréger par commande avant de joindre |
+| Statut de commande | même calcul, trois périmètres | completed 26 210 € ; + pending 29 433,75 € ; tous 32 717,50 € | CA = `completed` |
 
-## A1 — Normalisation (approfondissement)
+## A1 — Normalisation
 
-Le script `06_normalisation_A1.sql` reprend `planning_a_normaliser.csv`, où nom de salle et responsable sont répétés à chaque réservation. Il montre trois anomalies :
-- **mise à jour** : changer le responsable sur une seule ligne donne deux responsables pour la même salle ;
-- **insertion** : impossible de créer une salle qui n'a pas encore de réservation ;
-- **suppression** : supprimer la dernière réservation d'une salle efface la salle elle-même.
+`sql/06_normalisation_A1.sql` montre sur `planning_a_normaliser.csv` les anomalies de mise à jour, d'insertion et de suppression, puis le schéma séparé `salles` / `reservations`.
 
-La version normalisée sépare `salles` (salle_id, nom, responsable) et `reservations` (reservation_id, salle_id en clé étrangère), ce qui supprime les trois anomalies.
+---
 
-## État du projet et limites
+# S2
 
-- Socle M1 à M4 terminé, A1 fourni. Les scripts ont été rejoués deux fois sans écart.
-- Les remboursements ne figurent pas dans les sources : l'argent encaissé sur des commandes annulées reste à expliquer avec le métier.
-- `products.csv` et `categories.csv` sont présents, mais le catalogue est hors périmètre S1 ; ils sont prévus pour la suite.
-- Les identifiants de `compose.yaml` ne servent qu'à l'atelier local.
+## M1 — Catalogue
+
+| Source | Grain | Reçus | Intégrés | Rejetés |
+|---|---|---:|---:|---:|
+| categories.csv | une catégorie | 10 | 10 | 0 |
+| products.csv | une fiche produit | 25 | 24 | 1 |
+
+Relations : `categories.parent_category_id → categories` ; `products.category_id → categories` ; `order_items.product_id → products`.
+
+**Note d'anomalies**
+
+| Anomalie | Résultat |
+|---|---|
+| Doublon de fiche produit | produit 3 présent 2 fois (lignes 3 et 25) : 2e rejetée |
+| Couverture des codes produit | 24 codes vendus, 24 au catalogue, 0 écart |
+| Dates ventes / catalogue | produit 6 vendu dès le 01/09, mis en vente le 15/09 (6 lignes) |
+
+## M2 — Analyses avancées
+
+| Analyse | Partition / grain | Résultat | Limite |
+|---|---|---|---|
+| `RANK()` produits | global et par catégorie ; 1 ligne = 1 produit | produits 7 et 18 ex æquo au rang 15, rang suivant 17 | les ex æquo partagent le rang |
+| `LAG()` / `LEAD()` mensuel | 1 ligne = 1 mois | sept. 9 717,50 € ; oct. 10 261,25 € ; nov. 6 231,25 € | novembre incomplet (19 jours sur 30) |
+| CTE | 1 ligne = 1 ligne d'article d'une commande `completed` | total 26 210 € | — |
+
+## M3 — Benchmark
+
+10 000 000 lignes dans `benchmark.benchmark_sales` (498 Mo).
+
+Filtres : `store_id = 42` (100 lignes, 0,001 %) et `store_id = 1` (9 500 000 lignes, 95 %).
+
+Index : `CREATE INDEX benchmark_sales_store_id_idx ON benchmark.benchmark_sales (store_id);` — construction 16,9 s, taille 66 Mo.
+
+Mesures : premier passage à part, médiane de 3 répétitions. Plans complets dans `preuves/10_benchmark_mesures.txt`.
+
+| Requête | Phase | 1er passage (ms) | Médiane (ms) | Plan |
+|---|---|---:|---:|---|
+| store 42 | sans index | 715,9 | 965,4 | Parallel Seq Scan |
+| store 42 | avec index | 0,38 | 0,087 | Index Scan |
+| store 1 | sans index | 2 216,7 | 2 086,9 | Parallel Seq Scan |
+| store 1 | avec index | 2 019,8 | 2 041,7 | Parallel Seq Scan |
+| store 1 | index forcé | 3 578,1 | 3 419,6 | Bitmap Heap Scan |
+
+Commentaire : l'index accélère le filtre sélectif (store 42) ; il n'est pas utilisé pour le filtre large (store 1).
+
+## M4 — Index inefficace et jointure
+
+- **Index inefficace** : sur `store_id = 1` (95 % des lignes), l'index n'apporte pas de gain ; forcé, la requête passe de 2 086,9 ms à 3 419,6 ms.
+- **Jointure qui multiplie les lignes** : le magasin 42 est dans 2 campagnes ; `JOIN campaign_assignments` donne 200 lignes au lieu de 100 et un montant doublé.
+
+## A1 — Compléments
+
+- **`NTILE(4)`** : population = 120 clients ayant au moins une commande `completed` ; 4 groupes de 30.
+- **`WITH RECURSIVE`** : 2 racines, profondeur 2, 0 cycle ; CA par branche : Loisirs 17 966,25 €, Maison 8 243,75 €.
+- **Estimé / réel** : `zone_id = 3 AND channel_id = 3` estimé à 40 424 lignes par worker, réel 333 333 ; après `CREATE STATISTICS (dependencies)`, estimé 415 103.
