@@ -1,0 +1,18 @@
+{
+  "run": "clean-20261124115617",
+  "scenario": "clean",
+  "concurrence": 3,
+  "statut": "publié",
+  "pages_attendues": 6,
+  "pages_recues": 6,
+  "requetes_http": 6,
+  "reprises": 0,
+  "erreurs": {},
+  "lignes_vues": 24,
+  "lignes_valides": 24,
+  "lignes_rejetees": 0,
+  "motifs_rejet": {},
+  "pages_en_echec": [],
+  "duree_s": 0.41,
+  "concurrence_max_observee": 3
+}

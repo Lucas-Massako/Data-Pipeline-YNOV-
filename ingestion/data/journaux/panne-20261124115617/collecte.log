@@ -1,0 +1,12 @@
+11:56:27 INFO début : scénario=panne run=panne-20261124115617 concurrence=3 max_essais=4 timeout=1.0s
+11:56:27 INFO page 1 reçue (essai 1, 4 offres)
+11:56:28 INFO page 2 reçue (essai 1, 4 offres)
+11:56:28 INFO page 4 reçue (essai 1, 4 offres)
+11:56:28 INFO page 3 reçue (essai 1, 4 offres)
+11:56:28 INFO page 5 reçue (essai 1, 4 offres)
+11:56:28 WARNING page 6 : http_503 (essai 1/4), nouvel essai dans 0.5 s
+11:56:28 WARNING page 6 : http_503 (essai 2/4), nouvel essai dans 1.0 s
+11:56:29 WARNING page 6 : http_503 (essai 3/4), nouvel essai dans 2.0 s
+11:56:32 ERROR page 6 : http_503 après 4 essais
+11:56:32 ERROR lot INCOMPLET : aucune publication dans data/valid/
+11:56:32 INFO bilan : {"run": "panne-20261124115617", "scenario": "panne", "concurrence": 3, "statut": "échec", "pages_attendues": 6, "pages_recues": 5, "requetes_http": 9, "reprises": 3, "erreurs": {"http_503": 4}, "lignes_vues": 20, "lignes_valides": 20, "lignes_rejetees": 0, "motifs_rejet": {}, "pages_en_echec": [6], "duree_s": 4.308, "concurrence_max_observee": 3}

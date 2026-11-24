@@ -1,2 +1,6 @@
 .DS_Store
 ~$*
+.venv/
+__pycache__/
+S3_Supports_Pedagogiques_V2/
+ingestion/data/valid/*.tmp

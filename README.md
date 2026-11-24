@@ -1,4 +1,4 @@
-# NovaMarket — S1 et S2 (SQL relationnel, SQL avancé, benchmark)
+# NovaMarket — S1, S2 et S3 (SQL relationnel, SQL avancé et benchmark, ingestion asynchrone)
 
 **Auteur :** Lucas Massako — M1 Data IA, YNOV
 
@@ -9,7 +9,16 @@ Prérequis : Docker Desktop lancé. Toutes les commandes se lancent depuis `nova
 ```bash
 bash run_s1.sh    # S1 : schéma, import des ventes, contrôles, indicateurs, anomalies
 bash run_s2.sh    # S2 : catalogue et analyses avancées (dépend de S1)
-bash run_s3.sh    # Benchmark : génération des 10 000 000 lignes et mesures
+bash run_s3.sh    # S2 M3 : benchmark, génération des 10 000 000 lignes et mesures
+```
+
+S3 (Python 3.12, API fournisseur dans Docker) :
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-v3.txt
+bash run_ingestion.sh   # démarre l'API, lance les collectes clean, séquentielle, panne et atelier
 ```
 
 Chaque script écrit ses résultats dans `preuves/`. `run_s1.sh` recrée les schémas `reception` et `metier` : il faut ensuite relancer `run_s2.sh`.
@@ -27,6 +36,11 @@ Chaque script écrit ses résultats dans `preuves/`. `run_s1.sh` recrée les sch
 | `sql/09_analyses_avancees.sql` | `RANK`, `LAG` / `LEAD`, CTE, `NTILE`, `WITH RECURSIVE` |
 | `s3/generer.sql` | Générateur fourni (schéma `benchmark`) |
 | `sql/10_benchmark_mesures.sql` | Plans, script d'index, mesures |
+| `ingestion/CONTRAT.md` | Contrat de l'API fournisseur |
+| `ingestion/src/collecteur.py` | Collecte asynchrone paginée (aiohttp, asyncio) |
+| `ingestion/src/validation.py` | Règles de validation et motifs de rejet |
+| `ingestion/src/journalisation.py` | Journal et bilan d'exécution |
+| `ingestion/data/` | `raw/`, `valid/`, `rejected/`, `journaux/` (par run) ; lot publié : `valid/offres.jsonl` |
 
 ## État du projet
 
@@ -34,6 +48,7 @@ Chaque script écrit ses résultats dans `preuves/`. `run_s1.sh` recrée les sch
 |---|---|---|
 | S1 | M1 à M5, A1 | Terminé |
 | S2 | M1 à M4, A1 | Terminé |
+| S3 | M1 à M4 | Terminé |
 
 ---
 
@@ -152,23 +167,42 @@ Relations : `categories.parent_category_id → categories` ; `products.category_
 
 ## M3 — Benchmark
 
-10 000 000 lignes dans `benchmark.benchmark_sales` (498 Mo).
 
-Filtres : `store_id = 42` (100 lignes, 0,001 %) et `store_id = 1` (9 500 000 lignes, 95 %).
+Génération : `s3/generer.sql` (sortie `COMMIT`). Volume : 10 000 000 lignes dans `benchmark.benchmark_sales` (498 Mo).
 
-Index : `CREATE INDEX benchmark_sales_store_id_idx ON benchmark.benchmark_sales (store_id);` — construction 16,9 s, taille 66 Mo.
+| Requête | Filtre | Lignes | Part |
+|---|---|---:|---:|
+| QA | `store_id = 42` | 100 | 0,001 % |
+| QB | `store_id = 1` | 9 500 000 | 95 % |
 
-Mesures : premier passage à part, médiane de 3 répétitions. Plans complets dans `preuves/10_benchmark_mesures.txt`.
+Requête mesurée : `SELECT count(*), sum(amount_cents) FROM benchmark.benchmark_sales WHERE store_id = …`
 
-| Requête | Phase | 1er passage (ms) | Médiane (ms) | Plan |
-|---|---|---:|---:|---|
-| store 42 | sans index | 715,9 | 965,4 | Parallel Seq Scan |
-| store 42 | avec index | 0,38 | 0,087 | Index Scan |
-| store 1 | sans index | 2 216,7 | 2 086,9 | Parallel Seq Scan |
-| store 1 | avec index | 2 019,8 | 2 041,7 | Parallel Seq Scan |
-| store 1 | index forcé | 3 578,1 | 3 419,6 | Bitmap Heap Scan |
+Conditions de mesure : MacBook Air, Docker limité à 2 CPU et 2 Go, PostgreSQL 17, mesure du 24/11/2026. `EXPLAIN (ANALYZE, BUFFERS)`, premier passage à part, médiane de 3 répétitions. Plans complets dans `preuves/10_benchmark_mesures.txt`.
 
-Commentaire : l'index accélère le filtre sélectif (store 42) ; il n'est pas utilisé pour le filtre large (store 1).
+### Optimisation
+
+```sql
+CREATE INDEX benchmark_sales_store_id_idx ON benchmark.benchmark_sales (store_id);
+```
+
+Construction : 16,9 s. Taille : 66 Mo (13,3 % de la table).
+
+| Requête | Phase | 1er passage (ms) | Médiane (ms) | Blocs hit / read | Plan |
+|---|---|---:|---:|---|---|
+| QA | sans index | 715,9 | 965,4 | 2 976 / 60 768 | Parallel Seq Scan |
+| QA | avec index | 0,38 | 0,087 | 103 / 0 | Index Scan |
+| QB | sans index | 2 216,7 | 2 086,9 | 3 360 / 60 384 | Parallel Seq Scan |
+| QB | avec index | 2 019,8 | 2 041,7 | 4 254 / 59 490 | Parallel Seq Scan |
+| QB | index forcé | 3 578,1 | 3 419,6 | 265 / 71 429 | Bitmap Heap Scan |
+
+### Analyse critique
+
+| Point | Constat |
+|---|---|
+| Faible sélectivité | QB retient 95 % des lignes : l'index n'est pas utilisé ; forcé, 3 419,6 ms et 71 429 blocs contre 2 086,9 ms et environ 63 700 blocs |
+| Multiplication des lignes | magasin 42 dans 2 campagnes : `JOIN campaign_assignments` donne 200 lignes et 20 200,00 € au lieu de 100 lignes et 10 100,00 € ; `EXISTS` donne 100 lignes |
+| Écart estimé / réel | `zone_id = 3 AND channel_id = 3` : 40 424 lignes estimées par worker, 333 333 réelles ; 415 103 estimées après `CREATE STATISTICS (dependencies)` |
+| Cache et poste | QB avec index : essais de 1 942,9 à 2 696,7 ms ; mesures valables pour ce poste uniquement |
 
 ## M4 — Index inefficace et jointure
 
@@ -180,3 +214,70 @@ Commentaire : l'index accélère le filtre sélectif (store 42) ; il n'est pas u
 - **`NTILE(4)`** : population = 120 clients ayant au moins une commande `completed` ; 4 groupes de 30.
 - **`WITH RECURSIVE`** : 2 racines, profondeur 2, 0 cycle ; CA par branche : Loisirs 17 966,25 €, Maison 8 243,75 €.
 - **Estimé / réel** : `zone_id = 3 AND channel_id = 3` estimé à 40 424 lignes par worker, réel 333 333 ; après `CREATE STATISTICS (dependencies)`, estimé 415 103.
+
+---
+
+# S3 — Ingestion asynchrone
+
+## M1 — Contrat HTTP
+
+Contrat complet et exemple de réponse : `ingestion/CONTRAT.md`.
+
+| Élément | Contrat |
+|---|---|
+| Endpoints | `GET /health`, `GET /offers?page=N&scenario=S&run=R`, `GET /demo` |
+| Pagination | `page`, `total_pages` (6), `next_page`, `items` (4 offres par page) |
+| Condition d'arrêt | `next_page = null` sur la page 6 |
+| Clé métier | `offer_id` |
+| Types | `offer_id`, `supplier_id`, `currency`, `observed_on` texte ; `product_id`, `price_cents`, `available_units` entiers |
+
+| Scénario | Observé |
+|---|---|
+| `clean` | 6 pages en HTTP 200, 24 offres conformes |
+| `atelier` | page 2 : 429 + `Retry-After: 1` ; page 3 : 200 avec JSON invalide ; page 4 : délai ; 4 offres non conformes dans des réponses 200 |
+| `panne` | page 6 : 503 permanent |
+
+## M2 — Collecteur asynchrone
+
+`ingestion/src/collecteur.py` : page 1 seule (lecture de `total_pages`), puis pages 2 à 6 lancées ensemble avec `asyncio.gather`, au plus 3 requêtes simultanées (`asyncio.Semaphore`), une seule `aiohttp.ClientSession`. Chaque offre garde son numéro de page. Mesures du 24/11/2026 sur le MacBook Air (run `20261124115617`), journal : `preuves/11_ingestion.txt`.
+
+| Run | Concurrence | Pages | Offres | Durée |
+|---|---:|---:|---:|---:|
+| clean | 3 | 6 | 24 | 0,41 s |
+| clean (séquentiel) | 1 | 6 | 24 | 0,87 s |
+
+## M3 — Fiabilisation
+
+| Incident | Traitement |
+|---|---|
+| Timeout | délai de 1,0 s par requête, nouvel essai |
+| 429 | attente égale à `Retry-After`, nouvel essai |
+| JSON invalide, réponse incohérente, 5xx | nouvel essai, attente 0,5 s puis 1 s puis 2 s |
+| Autre 4xx | arrêt sans nouvel essai |
+| Bornes | 4 essais maximum par page ; attente plafonnée à 10 s ; 3 requêtes simultanées |
+| Lot incomplet | aucune écriture dans `data/valid/`, bilan en statut `échec`, code retour 1 |
+
+| Run | Statut | Requêtes HTTP | Reprises | Erreurs | Pages reçues |
+|---|---|---:|---:|---|---:|
+| atelier | publié | 9 | 3 | 429 : 1 ; JSON invalide : 1 ; timeout : 1 | 6 / 6 |
+| panne | échec | 9 | 3 | 503 : 4 | 5 / 6 |
+
+## M4 — Validation et traçabilité
+
+Règles (`ingestion/src/validation.py`) : 7 champs requis ; `offer_id`, `supplier_id` texte non vide ; `product_id` entier présent dans `s2/donnees/products.csv` ; `price_cents`, `available_units` entiers ≥ 0 ; `currency = EUR` ; `observed_on` date ISO ; pas de doublon de `offer_id`.
+
+| Dossier | Contenu (JSONL UTF-8) |
+|---|---|
+| `data/raw/<run>/reponses.jsonl` | chaque réponse reçue : page, essai, statut HTTP, horodatage, corps brut |
+| `data/valid/<run>/offres.jsonl` et `data/valid/offres.jsonl` | offres conformes ; le fichier commun n'est remplacé que par un lot complet |
+| `data/rejected/<run>/rejets.jsonl` | page, position, motif, objet brut |
+| `data/journaux/<run>/` | `collecte.log` et `bilan.json` |
+
+Bilan du scénario `atelier` : 6 pages, 24 offres vues, 20 valides, 4 rejetées, 3 reprises, 1,78 s. Panne : échec après 4,31 s.
+
+| Page | Position | `offer_id` | Motif |
+|---:|---:|---|---|
+| 2 | 1 | O005 | champ manquant : supplier_id |
+| 3 | 2 | O010 | price_cents non entier |
+| 5 | 1 | O017 | product_id absent du catalogue |
+| 6 | 4 | O001 | doublon de offer_id |

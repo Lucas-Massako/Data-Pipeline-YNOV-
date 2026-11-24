@@ -1,0 +1,12 @@
+11:56:33 INFO début : scénario=atelier run=atelier-20261124115617 concurrence=3 max_essais=4 timeout=1.0s
+11:56:33 INFO page 1 reçue (essai 1, 4 offres)
+11:56:33 WARNING page 2 : http_429 (essai 1/4), nouvel essai dans 1.0 s
+11:56:33 WARNING page 3 : json_invalide (essai 1/4), nouvel essai dans 0.5 s
+11:56:33 INFO page 5 reçue (essai 1, 4 offres)
+11:56:33 INFO page 6 reçue (essai 1, 4 offres)
+11:56:33 INFO page 3 reçue (essai 2, 4 offres)
+11:56:34 WARNING page 4 : timeout (essai 1/4), nouvel essai dans 0.5 s
+11:56:34 INFO page 2 reçue (essai 2, 4 offres)
+11:56:34 INFO page 4 reçue (essai 2, 4 offres)
+11:56:34 INFO lot complet publié : ingestion/data/valid/offres.jsonl
+11:56:34 INFO bilan : {"run": "atelier-20261124115617", "scenario": "atelier", "concurrence": 3, "statut": "publié", "pages_attendues": 6, "pages_recues": 6, "requetes_http": 9, "reprises": 3, "erreurs": {"http_429": 1, "json_invalide": 1, "timeout": 1}, "lignes_vues": 24, "lignes_valides": 20, "lignes_rejetees": 4, "motifs_rejet": {"champ manquant : supplier_id": 1, "price_cents non entier": 1, "product_id absent du catalogue": 1, "doublon de offer_id": 1}, "pages_en_echec": [], "duree_s": 1.78, "concurrence_max_observee": 3}
