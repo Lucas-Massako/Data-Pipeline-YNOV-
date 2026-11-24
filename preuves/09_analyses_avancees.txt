@@ -1,0 +1,168 @@
+CREATE VIEW
+=== Contrôle : la vue ventes conserve le grain ligne d'article ===
+ lignes | order_item_id_distincts | ca_euros 
+--------+-------------------------+----------
+    640 |                     640 | 26210.00
+(1 row)
+
+=== M2a. Classement des produits par CA (global et dans leur catégorie) ===
+ category_name | product_id |  sku   | ca_euros | unites | rang_global | rang_dense | rang_unique | rang_dans_categorie 
+---------------+------------+--------+----------+--------+-------------+------------+-------------+---------------------
+ Jeux de table |         23 | NM-023 |  2733.75 |     81 |           1 |          1 |           1 |                   1
+ Randonnée     |         20 | NM-020 |  2430.00 |     81 |           2 |          2 |           2 |                   1
+ Randonnée     |         17 | NM-017 |  2126.25 |     81 |           3 |          3 |           3 |                   2
+ Jardin        |         14 | NM-014 |  1822.50 |     81 |           4 |          4 |           4 |                   1
+ Jeux de table |         22 | NM-022 |  1690.00 |     52 |           5 |          5 |           5 |                   2
+ Cuisine       |         11 | NM-011 |  1518.75 |     81 |           6 |          6 |           6 |                   1
+ Randonnée     |         19 | NM-019 |  1495.00 |     52 |           7 |          7 |           7 |                   3
+ Jardin        |         16 | NM-016 |  1400.00 |     56 |           8 |          8 |           8 |                   2
+ Jardin        |         13 | NM-013 |  1190.00 |     56 |           9 |          9 |           9 |                   3
+ Outillage     |          8 | NM-008 |  1170.00 |     78 |          10 |         10 |          10 |                   1
+ Cuisine       |         10 | NM-010 |   980.00 |     56 |          11 |         11 |          11 |                   2
+ Jeux de table |         24 | NM-024 |   910.00 |     26 |          12 |         12 |          12 |                   3
+ Outillage     |          5 | NM-005 |   877.50 |     78 |          13 |         13 |          13 |                   2
+ Jeux de table |         21 | NM-021 |   812.50 |     26 |          14 |         14 |          14 |                   4
+ Outillage     |          7 | NM-007 |   715.00 |     52 |          15 |         15 |          15 |                   3
+ Randonnée     |         18 | NM-018 |   715.00 |     26 |          15 |         15 |          16 |                   4
+ Jardin        |         15 | NM-015 |   641.25 |     27 |          17 |         16 |          17 |                   4
+ Rangement     |          2 | NM-002 |   585.00 |     78 |          18 |         17 |          18 |                   1
+ Cuisine       |         12 | NM-012 |   540.00 |     27 |          19 |         18 |          19 |                   3
+ Rangement     |          4 | NM-004 |   520.00 |     52 |          20 |         19 |          20 |                   2
+ Cuisine       |          9 | NM-009 |   438.75 |     27 |          21 |         20 |          21 |                   4
+ Outillage     |          6 | NM-006 |   337.50 |     27 |          22 |         21 |          22 |                   4
+ Rangement     |          1 | NM-001 |   325.00 |     52 |          23 |         22 |          23 |                   3
+ Rangement     |          3 | NM-003 |   236.25 |     27 |          24 |         23 |          24 |                   4
+(24 rows)
+
+--- M2a bis. Ex æquo détectés dans le classement produits ---
+ ca_euros | produits_ex_aequo 
+----------+-------------------
+   715.00 | {7,18}
+(1 row)
+
+=== M2b. Top 10 clients par CA (RANK, ex æquo inclus) ===
+ rang | customer_id | ca_euros | commandes 
+------+-------------+----------+-----------
+    1 |           9 |   363.75 |         3
+    1 |          33 |   363.75 |         3
+    1 |          57 |   363.75 |         3
+    4 |           3 |   341.25 |         3
+    4 |          27 |   341.25 |         3
+    4 |          75 |   341.25 |         3
+    4 |          99 |   341.25 |         3
+    8 |          15 |   326.25 |         3
+    8 |          39 |   326.25 |         3
+    8 |          63 |   326.25 |         3
+    8 |          87 |   326.25 |         3
+(11 rows)
+
+=== M2c. Effet d'une duplication sur le classement produits ===
+ product_id | ca_propre_euros | ca_brut_euros | rang_propre | rang_brut 
+------------+-----------------+---------------+-------------+-----------
+          3 |          236.25 |        472.50 |          24 |        21
+          9 |          438.75 |        438.75 |          21 |        22
+          6 |          337.50 |        337.50 |          22 |        23
+          1 |          325.00 |        325.00 |          23 |        24
+(4 rows)
+
+=== M3a. CA mensuel, évolution vs mois précédent, couverture des jours ===
+  mois   | commandes | ca_euros | ca_mois_precedent | ca_mois_suivant | evolution_pct | couverture | statut_periode 
+---------+-----------+----------+-------------------+-----------------+---------------+------------+----------------
+ 2026-09 |       120 |  9717.50 |                   |        10261.25 |               | 30/30      | complet
+ 2026-10 |       124 | 10261.25 |           9717.50 |         6231.25 |           5.6 | 31/31      | complet
+ 2026-11 |        76 |  6231.25 |          10261.25 |                 |         -39.3 | 19/30      | INCOMPLET
+(3 rows)
+
+--- M3a bis. Même comparaison en CA moyen par jour observé (neutralise les mois incomplets) ---
+  mois   | jours | ca_par_jour_euros | evolution_pct 
+---------+-------+-------------------+---------------
+ 2026-09 |    30 |            323.92 |              
+ 2026-10 |    31 |            331.01 |           2.2
+ 2026-11 |    19 |            327.96 |          -0.9
+(3 rows)
+
+=== M3b. CA hebdomadaire (semaines ISO) avec LAG / LEAD ===
+  semaine   | commandes | ca_euros | ecart_vs_prec_euros | ecart_vs_suiv_euros | couverture | statut_periode 
+------------+-----------+----------+---------------------+---------------------+------------+----------------
+ 2026-08-31 |        24 |  1877.50 |                     |              543.75 | 6/7        | INCOMPLÈTE
+ 2026-09-07 |        28 |  2421.25 |              543.75 |             -275.00 | 7/7        | complète
+ 2026-09-14 |        28 |  2146.25 |             -275.00 |              292.50 | 7/7        | complète
+ 2026-09-21 |        28 |  2438.75 |              292.50 |             -191.25 | 7/7        | complète
+ 2026-09-28 |        28 |  2247.50 |             -191.25 |              -30.00 | 7/7        | complète
+ 2026-10-05 |        28 |  2217.50 |              -30.00 |              113.75 | 7/7        | complète
+ 2026-10-12 |        28 |  2331.25 |              113.75 |             -112.50 | 7/7        | complète
+ 2026-10-19 |        28 |  2218.75 |             -112.50 |              190.00 | 7/7        | complète
+ 2026-10-26 |        28 |  2408.75 |              190.00 |             -247.50 | 7/7        | complète
+ 2026-11-02 |        28 |  2161.25 |             -247.50 |              266.25 | 7/7        | complète
+ 2026-11-09 |        28 |  2427.50 |              266.25 |            -1113.75 | 7/7        | complète
+ 2026-11-16 |        16 |  1313.75 |            -1113.75 |                     | 4/7        | INCOMPLÈTE
+(12 rows)
+
+=== M3c. Cohérence dates ventes / catalogue (incohérence démontrée, pas évolution inhabituelle) ===
+ product_id | first_listed_on | ordered_on | order_id | montant_euros 
+------------+-----------------+------------+----------+---------------
+          6 | 2026-09-15      | 2026-09-01 |        5 |         12.50
+          6 | 2026-09-15      | 2026-09-05 |       22 |         12.50
+          6 | 2026-09-15      | 2026-09-06 |       29 |         12.50
+          6 | 2026-09-15      | 2026-09-10 |       46 |         12.50
+          6 | 2026-09-15      | 2026-09-11 |       53 |         12.50
+(5 rows)
+
+=== M4a. Quartiles de clients par CA (NTILE(4)) ===
+ quartile | clients | ca_min_euros | ca_max_euros | ca_total_euros | part_ca_pct 
+----------+---------+--------------+--------------+----------------+-------------
+        1 |      30 |       270.00 |       363.75 |        9277.50 |        35.4
+        2 |      30 |       206.25 |       266.25 |        7110.00 |        27.1
+        3 |      30 |       167.50 |       206.25 |        5691.25 |        21.7
+        4 |      30 |        95.00 |       167.50 |        4131.25 |        15.8
+(4 rows)
+
+--- M4b. Égalités coupées par une frontière de quartile ---
+ ca_euros |                     clients_et_quartiles                     
+----------+--------------------------------------------------------------
+   206.25 | {8→Q2,19→Q2,25→Q2,32→Q2,43→Q2,49→Q3,56→Q3,67→Q3,73→Q3,97→Q3}
+   167.50 | {103→Q3,118→Q4,127→Q4,142→Q4}
+(2 rows)
+
+--- M4c. Population totale pour mémoire ---
+ clients_total | clients_segmentes | clients_hors_population 
+---------------+-------------------+-------------------------
+           180 |               120 |                      60
+(1 row)
+
+=== M5a. Arbre des catégories (chemin, profondeur, contrôle de cycle) ===
+ category_id | profondeur |             chemin              | cycle 
+-------------+------------+---------------------------------+-------
+           2 |          0 | Loisirs                         | f
+           4 |          1 | Loisirs > Extérieur             | f
+          22 |          2 | Loisirs > Extérieur > Jardin    | f
+          31 |          2 | Loisirs > Extérieur > Randonnée | f
+          32 |          1 | Loisirs > Jeux de table         | f
+           1 |          0 | Maison                          | f
+           3 |          1 | Maison > Atelier                | f
+          12 |          2 | Maison > Atelier > Outillage    | f
+          11 |          2 | Maison > Atelier > Rangement    | f
+          21 |          1 | Maison > Cuisine                | f
+(10 rows)
+
+=== M5b. CA consolidé par branche (chaque catégorie + toutes ses descendantes) ===
+ category_id | category_name | parent_category_id | ca_branche_euros | ca_propre_euros | nb_descendants 
+-------------+---------------+--------------------+------------------+-----------------+----------------
+           2 | Loisirs       |                    |         17966.25 |            0.00 |              4
+           1 | Maison        |                    |          8243.75 |            0.00 |              4
+           3 | Atelier       |                  1 |          4766.25 |            0.00 |              2
+          21 | Cuisine       |                  1 |          3477.50 |         3477.50 |              0
+           4 | Extérieur     |                  2 |         11820.00 |            0.00 |              2
+          32 | Jeux de table |                  2 |          6146.25 |         6146.25 |              0
+          12 | Outillage     |                  3 |          3100.00 |         3100.00 |              0
+          11 | Rangement     |                  3 |          1666.25 |         1666.25 |              0
+          31 | Randonnée     |                  4 |          6766.25 |         6766.25 |              0
+          22 | Jardin        |                  4 |          5053.75 |         5053.75 |              0
+(10 rows)
+
+--- M5c. Contrôle anti double comptage : somme des racines = CA total ---
+ somme_branches_racines_euros | ca_total_euros | coherent 
+------------------------------+----------------+----------
+                     26210.00 |       26210.00 | t
+(1 row)
+

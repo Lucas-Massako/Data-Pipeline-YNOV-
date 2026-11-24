@@ -1,16 +1,20 @@
-# NovaMarket — S1 : SQL relationnel et premiers indicateurs
+# NovaMarket — S1 à S3 : SQL relationnel, SQL avancé et benchmark
 
 **Auteur :** Lucas Massako — M1 Data IA, YNOV
 
-Base PostgreSQL 17 (Docker) construite à partir des quatre fichiers de `s1/donnees/`. Tous les montants sont en **centimes** (`integer`) et ne sont convertis en euros qu'à l'affichage.
+Base PostgreSQL 17 (Docker) construite à partir des fichiers de `s1/donnees/` (ventes) et `s2/donnees/` (catalogue), plus un jeu de benchmark séparé de 10 millions de lignes (`s3/`). Tous les montants sont en **centimes** (`integer`) et ne sont convertis en euros qu'à l'affichage.
 
 ## Exécution
 
 Prérequis : Docker Desktop lancé. Toutes les commandes se tapent depuis `novamarket/`.
 
 ```bash
-bash run_s1.sh          # démarre PostgreSQL, recrée le schéma, importe, écrit les preuves
+bash run_s1.sh          # S1 : démarre PostgreSQL, recrée le schéma, importe les ventes, écrit les preuves
+bash run_s2.sh          # S2 : intègre le catalogue, lance les analyses avancées
+bash run_s3.sh          # S3 : génère le benchmark (si absent) et mesure avant / après index
 ```
+
+L'ordre compte : `run_s1.sh` recrée les schémas `reception` et `metier`, ce qui efface aussi le catalogue. Après un `run_s1.sh`, il faut donc relancer `run_s2.sh`. Le schéma `benchmark` n'est jamais touché par S1 ni S2.
 
 Pour lancer les scripts un par un :
 
@@ -29,6 +33,12 @@ docker compose exec -T postgres psql -X -U atelier -d novamarket < sql/03_contro
 | `sql/04_indicateurs.sql` | Commandes par statut, clients sans commande, CA, panier moyen, rapprochement des paiements | M3 |
 | `sql/05_anomalies.sql` | Doublons, orphelins, multiplication des montants par jointure, effet du statut sur le CA | M4 |
 | `sql/06_normalisation_A1.sql` | Anomalies d'insertion, de mise à jour et de suppression, puis version normalisée (tout est annulé par ROLLBACK) | A1 |
+| `sql/07_catalogue.sql` | Réception, rejets et intégration de `categories` et `products` ; clé étrangère `order_items → products` | S2 M1 |
+| `sql/08_controles_catalogue.sql` | Volumes, doublons de fiches, couverture des codes produit, cohérence des dates, hiérarchie | S2 M1 |
+| `sql/09_analyses_avancees.sql` | `RANK`, `LAG` / `LEAD`, CTE, `NTILE(4)`, `WITH RECURSIVE` | S2 M2–M5 |
+| `s3/generer.sql` | Générateur fourni (schéma `benchmark`, 10 000 000 lignes) | S3 |
+| `sql/10_benchmark_mesures.sql` | Plans `EXPLAIN (ANALYZE, BUFFERS)` avant / après index, mesures répétées, index forcé, jointure multiplicatrice, écart estimé / réel | S3 |
+| `run_s1.sh`, `run_s2.sh`, `run_s3.sh` | Rejouent chaque séance et écrivent les sorties dans `preuves/` | — |
 | `.env` | Port hôte (`15432`) et sous-réseau Docker, à modifier en cas de conflit | — |
 
 Les scripts sont **rejouables** : `01` recrée les schémas et `02` vide puis recharge. Les fichiers bruts de `s1/` ne sont jamais modifiés, car ils sont montés en lecture seule.
@@ -131,9 +141,88 @@ Le script `06_normalisation_A1.sql` reprend `planning_a_normaliser.csv`, où nom
 
 La version normalisée sépare `salles` (salle_id, nom, responsable) et `reservations` (reservation_id, salle_id en clé étrangère), ce qui supprime les trois anomalies.
 
+## S2 · M1 — Intégration du catalogue
+
+Grain : `categories.csv` = une catégorie (hiérarchie par `parent_category_id`, vide pour une racine) ; `products.csv` = une fiche produit, dont l'unicité était à vérifier.
+
+| Table métier | Clés et contraintes |
+|---|---|
+| `metier.categories` | PK `category_id`, FK `parent_category_id → categories` (auto-référence), CHECK pas d'auto-parent |
+| `metier.products` | PK `product_id`, `sku` UNIQUE, FK `category_id → categories`, `first_listed_on` date |
+| `metier.order_items` (S1) | **ajout** FK `product_id → products`, posée seulement après contrôle de couverture |
+
+Ordre d'import : catégories (racines puis enfants, via une CTE récursive), puis produits, puis la clé étrangère vers les ventes. Tout se fait dans une transaction : si un code vendu manquait au catalogue, la clé étrangère échouerait et rien ne serait modifié dans S1.
+
+| Source | Reçus | Intégrés | Rejetés |
+|---|---:|---:|---:|
+| categories.csv | 10 | 10 | 0 |
+| products.csv | 25 | 24 | 1 |
+
+| Anomalie catalogue | Détection | Effet | Décision |
+|---|---|---|---|
+| Fiche produit 3 en double (lignes 3 et 25, valeurs identiques) | `GROUP BY product_id HAVING count(*) > 1` | Une jointure ventes × catalogue brut double les ventes du produit 3 : 236,25 € → 472,50 €, et il passe du 24e au 21e rang | 2e fiche rejetée et tracée |
+| Produit 6 vendu avant sa mise en vente déclarée (15/09) | Ventes où `ordered_on < first_listed_on` | 6 lignes du 01/09 au 14/09, dont 5 terminées (62,50 €) | Ventes conservées ; la date du catalogue est signalée comme douteuse |
+| Couverture des codes produit | Anti-jointures dans les deux sens | 24 produits vendus, 24 au catalogue, 0 écart | Clé étrangère posée |
+| Hiérarchie | CTE récursive avec chemin et détection de cycle | 2 racines, profondeur 2, 0 cycle, produits rattachés uniquement à des feuilles | RAS |
+
+## S2 · M2 à M5 — Analyses avancées
+
+Périmètre commun : lignes d'articles des commandes `completed` (décision D1). La vue de travail `ventes` garde le grain d'une ligne d'article ; son total redonne 26 210 €, ce qui confirme que la jointure avec le catalogue ne multiplie pas de lignes.
+
+| Mission | Méthode | Résultat principal | Limite / interprétation |
+|---|---|---|---|
+| M2 Classements | `RANK()` global et `PARTITION BY category_id` ; `DENSE_RANK` et `ROW_NUMBER` en comparaison | 1er produit : 23 (2 733,75 €). Produits 7 et 18 ex æquo à 715 € (rang 15, puis rang 17) | `RANK` garde l'égalité et saute un rang. Le top 10 clients donne 11 lignes à cause des ex æquo |
+| M2 Duplication | Classement calculé sur le catalogue brut vs nettoyé | Produit 3 : 24e → 21e ; 3 autres produits reculent d'un rang | Un doublon de référentiel fausse un classement sans erreur visible |
+| M3 Évolution | `LAG` / `LEAD` mensuels et hebdomadaires sur une série de périodes générée | Sept. 9 717,50 €, oct. 10 261,25 € (+5,6 %), nov. 6 231,25 € (−39,3 %) | Novembre est **incomplet** (19 jours sur 30) : la baisse n'est pas réelle. Ramené au CA par jour, l'écart n'est que de −0,9 %. Les semaines du 31/08 et du 16/11 sont aussi incomplètes |
+| M3 Dates | Ventes antérieures à `first_listed_on` | Produit 6 : incohérence démontrée | C'est une erreur de donnée, pas une évolution inhabituelle |
+| M4 Segmentation | `NTILE(4) OVER (ORDER BY ca DESC, customer_id)` | 4 × 30 clients ; le 1er quartile fait 35,4 % du CA | Population : 120 clients avec au moins un achat terminé (60 exclus). Deux groupes d'ex æquo sont coupés par une frontière (206,25 € et 167,50 €) |
+| M5 Récursif | `WITH RECURSIVE` : arbre (chemin, profondeur, cycles) puis table ancêtre → descendant | Loisirs 17 966,25 €, Maison 8 243,75 € | Contrôle : la somme des racines est égale au CA total, donc pas de double comptage |
+
+## S3 — Benchmark et index
+
+Jeu isolé `benchmark.benchmark_sales` (10 000 000 lignes, environ 500 Mo) ; ses montants ne s'ajoutent jamais aux indicateurs NovaMarket. Méthode : même requête avant et après, 1 premier passage mis à part, puis la **médiane de 3 répétitions** ; plans complets conservés dans `preuves/10_benchmark_mesures.txt`.
+
+| Requête | Sélectivité | Plan sans index | Plan avec index | Effet |
+|---|---|---|---|---|
+| QA `store_id = 42` | 100 lignes (0,001 %) | Parallel Seq Scan, environ 63 700 blocs lus | Index Scan, 103 blocs | Environ 11 000 fois plus rapide |
+| QB `store_id = 1` | 9 500 000 lignes (95 %) | Parallel Seq Scan | **Toujours Seq Scan** : le planificateur ignore l'index | Aucun gain |
+| QB, index forcé (`enable_seqscan = off`) | 95 % | — | Bitmap Heap Scan | **Plus lent** que le parcours séquentiel : cas d'index inefficace |
+
+**Mesures sur le poste de référence** (MacBook Air, Docker limité à 2 CPU et 2 Go, PostgreSQL 17, mesuré le 24/11/2026) :
+
+| Requête | Phase | 1er passage (ms) | Médiane de 3 essais (ms) | Blocs lus (hit / read) | Plan |
+|---|---|---:|---:|---|---|
+| QA store 42 (0,001 %) | sans index | 715,9 | **965,4** | 2 976 / 60 768 | Parallel Seq Scan |
+| QA store 42 (0,001 %) | avec index | 0,38 | **0,087** | 103 / 0 | Index Scan |
+| QB store 1 (95 %) | sans index | 2 216,7 | **2 086,9** | 3 360 / 60 384 | Parallel Seq Scan |
+| QB store 1 (95 %) | avec index | 2 019,8 | **2 041,7** | 4 254 / 59 490 | Parallel Seq Scan (index ignoré) |
+| QB store 1 (95 %) | index forcé | 3 578,1 | **3 419,6** | 265 / 71 429 | Bitmap Heap Scan |
+
+- **Coût de l'index** : construction en 16,9 s ; taille de 66 Mo, soit 13,3 % des 498 Mo de la table.
+- **QA** : environ 11 000 fois plus rapide (965 ms → 0,09 ms), et 103 blocs lus au lieu d'environ 63 700.
+- **QB** : aucun gain, car le planificateur garde le parcours séquentiel ; l'écart de 2 087 à 2 042 ms reste dans le bruit de mesure. Forcer l'index rend la requête **64 % plus lente** (3 420 ms) et fait lire plus de blocs (71 429 contre environ 63 700).
+- La dispersion entre essais (par exemple de 1 943 à 2 697 ms pour QB) illustre les limites du poste : cache, autres programmes en cours. C'est pourquoi on compare des médianes.
+
+**Analyse critique**
+- **Index inefficace** : sur 95 % de la table, lire l'index puis presque toutes les pages coûte plus cher qu'une lecture séquentielle. Un index n'est utile que pour un filtre sélectif, et il a un coût fixe en disque, en construction et en écritures.
+- **Jointure qui multiplie les lignes** : le magasin 42 appartient à 2 campagnes. `JOIN campaign_assignments` fait passer ses ventes de 100 à 200 lignes et double le montant. `EXISTS` garde le grain d'une vente.
+- **Écart estimé / réel** : `zone_id = 3 AND channel_id = 3` est estimé à environ 100 000 lignes, contre 1 000 000 en réalité. Le planificateur suppose les colonnes indépendantes, alors qu'elles sont identiques. `CREATE STATISTICS … (dependencies)` ramène l'estimation à environ 1 000 000. C'est un problème de statistiques, pas une erreur dans les données.
+- **Limites** : les mesures dépendent du poste (Docker limité à 2 CPU et 2 Go, cache de l'OS, parallélisme, JIT). Seul le premier passage subit le cache froid ; on compare donc des médianes, et jamais des mesures prises sur deux machines différentes.
+
+## Décisions S2 / S3 proposées — à valider
+
+| # | Sujet | Proposition |
+|---|---|---|
+| D7 | Fiche produit 3 en double | 2e occurrence rejetée et tracée |
+| D8 | Produit 6 vendu avant sa date de mise en vente | Ventes conservées dans le CA ; date du catalogue signalée comme douteuse |
+| D9 | Population de la segmentation | Clients avec au moins un achat terminé (120) ; égalités départagées par `customer_id` |
+| D10 | Ex æquo des classements | `RANK()` : rang partagé puis saut |
+| D11 | Index retenu | B-tree sur `store_id`, utile pour les magasins peu fréquents ; inutile pour le magasin 1 |
+
 ## État du projet et limites
 
-- Socle M1 à M4 terminé, A1 fourni. Les scripts ont été rejoués deux fois sans écart.
+- S1 : socle M1 à M5 terminé, A1 fourni. S2 : M1 à M5 terminés (A1 couvert par NTILE et WITH RECURSIVE). S3 : benchmark, index et analyse critique terminés. Tous les scripts ont été rejoués deux fois sans écart.
 - Les remboursements ne figurent pas dans les sources : l'argent encaissé sur des commandes annulées reste à expliquer avec le métier.
-- `products.csv` et `categories.csv` sont présents, mais le catalogue est hors périmètre S1 ; ils sont prévus pour la suite.
+- Novembre est un mois incomplet (données jusqu'au 19/11) : à ne pas comparer en valeur brute.
+- Les temps du benchmark ne valent que pour le poste qui les a mesurés.
 - Les identifiants de `compose.yaml` ne servent qu'à l'atelier local.

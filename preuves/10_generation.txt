@@ -1,0 +1,17 @@
+Timing is on.
+BEGIN
+Time: 0.454 ms
+CREATE SCHEMA
+Time: 0.817 ms
+SELECT 10000000
+Time: 55816.791 ms (00:55.817)
+CREATE TABLE
+Time: 44.201 ms
+INSERT 0 4
+Time: 1.821 ms
+ANALYZE
+Time: 849.237 ms
+ANALYZE
+Time: 0.590 ms
+COMMIT
+Time: 2.034 ms

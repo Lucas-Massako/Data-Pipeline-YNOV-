@@ -1,0 +1,321 @@
+Pager usage is off.
+=== 0. Contexte ===
+                                                           version                                                            
+------------------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 17.12 (Debian 17.12-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+(1 row)
+
+              name               | setting | unit 
+---------------------------------+---------+------
+ effective_cache_size            | 524288  | 8kB
+ jit                             | on      | 
+ max_parallel_workers_per_gather | 2       | 
+ random_page_cost                | 4       | 
+ shared_buffers                  | 16384   | 8kB
+ work_mem                        | 4096    | kB
+(6 rows)
+
+--- Volume et taille de la table ---
+  lignes  | taille_table | taille_totale 
+----------+--------------+---------------
+ 10000000 | 498 MB       | 498 MB
+(1 row)
+
+--- Sélectivité des deux filtres étudiés ---
+ store_id | lignes  | pct_table 
+----------+---------+-----------
+        1 | 9500000 |   95.0000
+       42 |     100 |    0.0010
+(2 rows)
+
+DROP INDEX
+NOTICE:  index "benchmark_sales_store_id_idx" does not exist, skipping
+NOTICE:  schema "perf" does not exist, skipping
+DROP SCHEMA
+CREATE SCHEMA
+CREATE TABLE
+CREATE TABLE
+CREATE FUNCTION
+=== 2. Référence SANS index : plans estimés puis plans complets ===
+--- QA (store_id = 42) : EXPLAIN ---
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=116829.51..116829.52 rows=1 width=16)
+   ->  Gather  (cost=116829.29..116829.50 rows=2 width=16)
+         Workers Planned: 2
+         ->  Partial Aggregate  (cost=115829.29..115829.30 rows=1 width=16)
+               ->  Parallel Seq Scan on benchmark_sales  (cost=0.00..115828.51 rows=156 width=4)
+                     Filter: (store_id = 42)
+ JIT:
+   Functions: 7
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+(9 rows)
+
+--- QA : EXPLAIN (ANALYZE, BUFFERS) ---
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=116829.51..116829.52 rows=1 width=16) (actual time=2027.129..2033.462 rows=1 loops=1)
+   Buffers: shared hit=2496 read=61248
+   ->  Gather  (cost=116829.29..116829.50 rows=2 width=16) (actual time=2026.680..2033.424 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=2496 read=61248
+         ->  Partial Aggregate  (cost=115829.29..115829.30 rows=1 width=16) (actual time=1914.750..1914.752 rows=1 loops=3)
+               Buffers: shared hit=2496 read=61248
+               ->  Parallel Seq Scan on benchmark_sales  (cost=0.00..115828.51 rows=156 width=4) (actual time=75.145..1914.452 rows=33 loops=3)
+                     Filter: (store_id = 42)
+                     Rows Removed by Filter: 3333300
+                     Buffers: shared hit=2496 read=61248
+ Planning Time: 0.132 ms
+ JIT:
+   Functions: 17
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+   Timing: Generation 6.436 ms (Deform 1.804 ms), Inlining 0.000 ms, Optimization 2.959 ms, Emission 135.397 ms, Total 144.792 ms
+ Execution Time: 2035.315 ms
+(18 rows)
+
+--- QB (store_id = 1) : EXPLAIN (ANALYZE, BUFFERS) ---
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=136582.64..136582.65 rows=1 width=16) (actual time=2204.571..2211.966 rows=1 loops=1)
+   Buffers: shared hit=2592 read=61152
+   ->  Gather  (cost=136582.42..136582.63 rows=2 width=16) (actual time=2204.044..2211.909 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=2592 read=61152
+         ->  Partial Aggregate  (cost=135582.42..135582.43 rows=1 width=16) (actual time=2172.284..2172.286 rows=1 loops=3)
+               Buffers: shared hit=2592 read=61152
+               ->  Parallel Seq Scan on benchmark_sales  (cost=0.00..115828.51 rows=3950783 width=4) (actual time=23.624..1331.079 rows=3166667 loops=3)
+                     Filter: (store_id = 1)
+                     Rows Removed by Filter: 166667
+                     Buffers: shared hit=2592 read=61152
+ Planning Time: 0.158 ms
+ JIT:
+   Functions: 17
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+   Timing: Generation 2.855 ms (Deform 0.924 ms), Inlining 0.000 ms, Optimization 2.036 ms, Emission 68.618 ms, Total 73.509 ms
+ Execution Time: 2212.908 ms
+(18 rows)
+
+ mesurer 
+---------
+ 
+(1 row)
+
+ mesurer 
+---------
+ 
+(1 row)
+
+=== 3. Construction de l'index sur store_id ===
+DO
+ANALYZE
+          index_nom           |                                          definition                                           | duree_ms | taille | pct_taille_table 
+------------------------------+-----------------------------------------------------------------------------------------------+----------+--------+------------------
+ benchmark_sales_store_id_idx | CREATE INDEX benchmark_sales_store_id_idx ON benchmark.benchmark_sales USING btree (store_id) |  16860.7 | 66 MB  |             13.3
+(1 row)
+
+=== 4. APRÈS index ===
+--- QA (store_id = 42) : EXPLAIN (ANALYZE, BUFFERS) ---
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=294.25..294.26 rows=1 width=16) (actual time=1.580..1.581 rows=1 loops=1)
+   Buffers: shared hit=6 read=97
+   ->  Index Scan using benchmark_sales_store_id_idx on benchmark_sales  (cost=0.43..292.38 rows=373 width=4) (actual time=0.305..1.532 rows=100 loops=1)
+         Index Cond: (store_id = 42)
+         Buffers: shared hit=6 read=97
+ Planning:
+   Buffers: shared hit=16 read=1
+ Planning Time: 0.328 ms
+ Execution Time: 1.611 ms
+(9 rows)
+
+--- QB (store_id = 1) : EXPLAIN (ANALYZE, BUFFERS) — le planificateur ignore-t-il l'index ? ---
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=136628.59..136628.60 rows=1 width=16) (actual time=2227.008..2234.474 rows=1 loops=1)
+   Buffers: shared hit=3870 read=59874
+   ->  Gather  (cost=136628.37..136628.58 rows=2 width=16) (actual time=2226.443..2234.426 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=3870 read=59874
+         ->  Partial Aggregate  (cost=135628.37..135628.38 rows=1 width=16) (actual time=2175.865..2175.867 rows=1 loops=3)
+               Buffers: shared hit=3870 read=59874
+               ->  Parallel Seq Scan on benchmark_sales  (cost=0.00..115824.56 rows=3960762 width=4) (actual time=14.175..1281.818 rows=3166667 loops=3)
+                     Filter: (store_id = 1)
+                     Rows Removed by Filter: 166667
+                     Buffers: shared hit=3870 read=59874
+ Planning Time: 0.135 ms
+ JIT:
+   Functions: 17
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+   Timing: Generation 4.255 ms (Deform 1.318 ms), Inlining 0.000 ms, Optimization 2.083 ms, Emission 40.554 ms, Total 46.892 ms
+ Execution Time: 2235.591 ms
+(18 rows)
+
+ mesurer 
+---------
+ 
+(1 row)
+
+ mesurer 
+---------
+ 
+(1 row)
+
+=== 5. Cas d'index inefficace : on FORCE l'index sur QB (enable_seqscan = off) ===
+BEGIN
+SET
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=239888.15..239888.16 rows=1 width=16) (actual time=3026.403..3037.032 rows=1 loops=1)
+   Buffers: shared hit=337 read=71357 written=3723
+   ->  Gather  (cost=239887.93..239888.14 rows=2 width=16) (actual time=3025.396..3036.988 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=337 read=71357 written=3723
+         ->  Partial Aggregate  (cost=238887.93..238887.94 rows=1 width=16) (actual time=2921.328..2921.330 rows=1 loops=3)
+               Buffers: shared hit=337 read=71357 written=3723
+               ->  Parallel Bitmap Heap Scan on benchmark_sales  (cost=105830.60..219084.12 rows=3960762 width=4) (actual time=569.754..1922.688 rows=3166667 loops=3)
+                     Recheck Cond: (store_id = 1)
+                     Heap Blocks: exact=21411
+                     Buffers: shared hit=337 read=71357 written=3723
+                     ->  Bitmap Index Scan on benchmark_sales_store_id_idx  (cost=0.00..103454.14 rows=9505828 width=0) (actual time=650.730..650.730 rows=9500000 loops=1)
+                           Index Cond: (store_id = 1)
+                           Buffers: shared hit=1 read=7998
+ Planning Time: 0.280 ms
+ JIT:
+   Functions: 17
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+   Timing: Generation 4.828 ms (Deform 1.637 ms), Inlining 0.000 ms, Optimization 1.591 ms, Emission 25.280 ms, Total 31.698 ms
+ Execution Time: 3038.563 ms
+(21 rows)
+
+ mesurer 
+---------
+ 
+(1 row)
+
+COMMIT
+=== 6. Synthèse des mesures (médiane des essais 1..3, premier passage à part) ===
+        requete        |     phase     | premier_passage_ms | mediane_ms |  min_ms  |  max_ms  | shared_hit | shared_read |                                 plan                                  
+-----------------------+---------------+--------------------+------------+----------+----------+------------+-------------+-----------------------------------------------------------------------
+ QA store 42 (0,001 %) | 1 sans index  |            715.864 |    965.410 |  910.750 | 1011.149 |       2976 |       60768 | Aggregate > Gather > Aggregate > Seq Scan
+ QA store 42 (0,001 %) | 2 avec index  |              0.378 |      0.087 |    0.079 |    0.224 |        103 |           0 | Aggregate > Index Scan
+ QB store 1 (95 %)     | 1 sans index  |           2216.701 |   2086.876 | 2019.495 | 2565.627 |       3360 |       60384 | Aggregate > Gather > Aggregate > Seq Scan
+ QB store 1 (95 %)     | 2 avec index  |           2019.827 |   2041.694 | 1942.929 | 2696.708 |       4254 |       59490 | Aggregate > Gather > Aggregate > Seq Scan
+ QB store 1 (95 %)     | 3 index forcé |           3578.106 |   3419.633 | 2971.835 | 3684.280 |        265 |       71429 | Aggregate > Gather > Aggregate > Bitmap Heap Scan > Bitmap Index Scan
+(5 rows)
+
+--- Détail de chaque essai ---
+        requete        |     phase     | essai | execution_ms | planning_ms | shared_hit | shared_read 
+-----------------------+---------------+-------+--------------+-------------+------------+-------------
+ QA store 42 (0,001 %) | 1 sans index  |     0 |      715.864 |       0.084 |       2688 |       61056
+ QA store 42 (0,001 %) | 1 sans index  |     1 |      910.750 |       0.057 |       2784 |       60960
+ QA store 42 (0,001 %) | 1 sans index  |     2 |      965.410 |       0.067 |       2880 |       60864
+ QA store 42 (0,001 %) | 1 sans index  |     3 |     1011.149 |       0.084 |       2976 |       60768
+ QA store 42 (0,001 %) | 2 avec index  |     0 |        0.378 |       0.124 |        103 |           0
+ QA store 42 (0,001 %) | 2 avec index  |     1 |        0.087 |       0.053 |        103 |           0
+ QA store 42 (0,001 %) | 2 avec index  |     2 |        0.224 |       0.057 |        103 |           0
+ QA store 42 (0,001 %) | 2 avec index  |     3 |        0.079 |       0.047 |        103 |           0
+ QB store 1 (95 %)     | 1 sans index  |     0 |     2216.701 |       0.084 |       3072 |       60672
+ QB store 1 (95 %)     | 1 sans index  |     1 |     2565.627 |       0.232 |       3168 |       60576
+ QB store 1 (95 %)     | 1 sans index  |     2 |     2086.876 |       0.059 |       3264 |       60480
+ QB store 1 (95 %)     | 1 sans index  |     3 |     2019.495 |       0.073 |       3360 |       60384
+ QB store 1 (95 %)     | 2 avec index  |     0 |     2019.827 |       0.088 |       3966 |       59778
+ QB store 1 (95 %)     | 2 avec index  |     1 |     2696.708 |       0.159 |       4062 |       59682
+ QB store 1 (95 %)     | 2 avec index  |     2 |     1942.929 |       0.088 |       4158 |       59586
+ QB store 1 (95 %)     | 2 avec index  |     3 |     2041.694 |       0.099 |       4254 |       59490
+ QB store 1 (95 %)     | 3 index forcé |     0 |     3578.106 |       0.154 |        274 |       71420
+ QB store 1 (95 %)     | 3 index forcé |     1 |     3419.633 |       0.100 |        274 |       71420
+ QB store 1 (95 %)     | 3 index forcé |     2 |     3684.280 |       0.092 |        282 |       71412
+ QB store 1 (95 %)     | 3 index forcé |     3 |     2971.835 |       0.161 |        265 |       71429
+(20 rows)
+
+=== 7a. Jointure qui multiplie les lignes : ventes x campagnes (magasin 42 dans 2 campagnes) ===
+                calcul                 | lignes | montant_cents 
+---------------------------------------+--------+---------------
+ ventes du magasin 42 (grain vente)    |    100 |       1010000
+ JOIN campaign_assignments (FAUX : x2) |    200 |       2020000
+ EXISTS (JUSTE : magasin en campagne)  |    100 |       1010000
+(3 rows)
+
+--- Plan de la jointure : lignes en entrée / sortie ---
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ HashAggregate  (cost=308.36..308.38 rows=2 width=20) (actual time=0.263..0.265 rows=2 loops=1)
+   Group Key: c.campaign_id
+   Batches: 1  Memory Usage: 24kB
+   Buffers: shared hit=104
+   ->  Nested Loop  (cost=0.43..302.76 rows=746 width=8) (actual time=0.024..0.214 rows=200 loops=1)
+         Buffers: shared hit=104
+         ->  Index Scan using benchmark_sales_store_id_idx on benchmark_sales s  (cost=0.43..292.38 rows=373 width=8) (actual time=0.010..0.118 rows=100 loops=1)
+               Index Cond: (store_id = 42)
+               Buffers: shared hit=103
+         ->  Materialize  (cost=0.00..1.06 rows=2 width=8) (actual time=0.000..0.000 rows=2 loops=100)
+               Buffers: shared hit=1
+               ->  Seq Scan on campaign_assignments c  (cost=0.00..1.05 rows=2 width=8) (actual time=0.010..0.011 rows=2 loops=1)
+                     Filter: (store_id = 42)
+                     Rows Removed by Filter: 2
+                     Buffers: shared hit=1
+ Planning:
+   Buffers: shared hit=3
+ Planning Time: 0.167 ms
+ Execution Time: 0.308 ms
+(19 rows)
+
+=== 7b. Écart estimé / réel : zone_id et channel_id parfaitement corrélés ===
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=127341.95..127341.96 rows=1 width=8) (actual time=775.639..782.389 rows=1 loops=1)
+   Buffers: shared hit=16144 read=47600 written=9
+   ->  Gather  (cost=127341.73..127341.94 rows=2 width=8) (actual time=774.898..782.351 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=16144 read=47600 written=9
+         ->  Partial Aggregate  (cost=126341.73..126341.74 rows=1 width=8) (actual time=750.654..750.656 rows=1 loops=3)
+               Buffers: shared hit=16144 read=47600 written=9
+               ->  Parallel Seq Scan on benchmark_sales  (cost=0.00..126240.67 rows=40424 width=0) (actual time=6.182..664.396 rows=333333 loops=3)
+                     Filter: ((zone_id = 3) AND (channel_id = 3))
+                     Rows Removed by Filter: 3000000
+                     Buffers: shared hit=16144 read=47600 written=9
+ Planning:
+   Buffers: shared hit=14
+ Planning Time: 0.142 ms
+ JIT:
+   Functions: 14
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+   Timing: Generation 1.764 ms (Deform 0.325 ms), Inlining 0.000 ms, Optimization 1.169 ms, Emission 17.441 ms, Total 20.373 ms
+ Execution Time: 782.891 ms
+(20 rows)
+
+--- 7c. Correction : statistiques étendues de dépendance ---
+CREATE STATISTICS
+ANALYZE
+                                                                     QUERY PLAN                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=128276.57..128276.58 rows=1 width=8) (actual time=742.823..749.370 rows=1 loops=1)
+   Buffers: shared hit=16118 read=47626
+   ->  Gather  (cost=128276.35..128276.56 rows=2 width=8) (actual time=742.458..749.336 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=16118 read=47626
+         ->  Partial Aggregate  (cost=127276.35..127276.36 rows=1 width=8) (actual time=717.560..717.561 rows=1 loops=3)
+               Buffers: shared hit=16118 read=47626
+               ->  Parallel Seq Scan on benchmark_sales  (cost=0.00..126238.59 rows=415103 width=0) (actual time=6.803..679.959 rows=333333 loops=3)
+                     Filter: ((zone_id = 3) AND (channel_id = 3))
+                     Rows Removed by Filter: 3000000
+                     Buffers: shared hit=16118 read=47626
+ Planning:
+   Buffers: shared hit=22 read=2
+ Planning Time: 1.521 ms
+ JIT:
+   Functions: 14
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+   Timing: Generation 1.966 ms (Deform 0.557 ms), Inlining 0.000 ms, Optimization 1.117 ms, Emission 19.313 ms, Total 22.396 ms
+ Execution Time: 749.951 ms
+(20 rows)
+
+DROP STATISTICS
+ANALYZE
+Fin des mesures. L'index benchmark_sales_store_id_idx est conservé (supprimé au prochain lancement).
