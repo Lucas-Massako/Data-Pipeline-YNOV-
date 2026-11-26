@@ -1,0 +1,22 @@
+{
+  "run": "panne-20261124140128",
+  "scenario": "panne",
+  "concurrence": 3,
+  "statut": "échec",
+  "pages_attendues": 6,
+  "pages_recues": 5,
+  "requetes_http": 9,
+  "reprises": 3,
+  "erreurs": {
+    "http_503": 4
+  },
+  "lignes_vues": 20,
+  "lignes_valides": 20,
+  "lignes_rejetees": 0,
+  "motifs_rejet": {},
+  "pages_en_echec": [
+    6
+  ],
+  "duree_s": 4.293,
+  "concurrence_max_observee": 3
+}

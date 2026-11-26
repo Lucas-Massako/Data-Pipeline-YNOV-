@@ -1,0 +1,31 @@
+version: 2
+
+sources:
+  - name: fournisseur
+    description: Offres fournisseurs chargées par transformation/chargement_postgres.py (S4 M1).
+    schema: fournisseur
+    tables:
+      - name: offres_observations
+        description: Une offre observée un jour. Clé (offer_id, observed_on).
+        columns:
+          - name: offer_id
+            tests: [not_null]
+          - name: observed_on
+            tests: [not_null]
+      - name: fournisseurs
+        columns:
+          - name: supplier_id
+            tests: [unique, not_null]
+      - name: chargements
+
+  - name: metier
+    description: Ventes et catalogue intégrés en S1 et S2 (sql/02_import.sql, sql/07_catalogue.sql).
+    schema: metier
+    tables:
+      - name: products
+        columns:
+          - name: product_id
+            tests: [unique, not_null]
+      - name: categories
+      - name: orders
+      - name: order_items

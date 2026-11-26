@@ -3,3 +3,8 @@
 .venv/
 __pycache__/
 ingestion/data/valid/*.tmp
+transformation/dbt/target/
+transformation/dbt/logs/
+s4/travail/logs/
+*.parquet.crc
+volumetrie/sorties/

@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: stg_fournisseur__offres
+    description: Grain = une offre observée un jour (offer_id, observed_on). Aucun changement de grain.
+    columns:
+      - name: offre_id
+        tests: [not_null]
+      - name: fournisseur_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: source('fournisseur', 'fournisseurs')
+                field: supplier_id
+      - name: produit_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_metier__produits')
+                field: produit_id
+      - name: prix_cents
+        tests: [not_null]
+      - name: devise
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['EUR']
+
+  - name: stg_metier__produits
+    description: Grain = un produit du catalogue, avec sa catégorie.
+    columns:
+      - name: produit_id
+        tests: [unique, not_null]
+
+  - name: stg_metier__lignes_vendues
+    description: Grain = une ligne d'article d'une commande completed (périmètre CA de S1).
+    columns:
+      - name: ligne_id
+        tests: [unique, not_null]

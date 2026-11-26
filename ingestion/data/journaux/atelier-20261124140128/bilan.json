@@ -1,0 +1,27 @@
+{
+  "run": "atelier-20261124140128",
+  "scenario": "atelier",
+  "concurrence": 3,
+  "statut": "publié",
+  "pages_attendues": 6,
+  "pages_recues": 6,
+  "requetes_http": 9,
+  "reprises": 3,
+  "erreurs": {
+    "http_429": 1,
+    "json_invalide": 1,
+    "timeout": 1
+  },
+  "lignes_vues": 24,
+  "lignes_valides": 20,
+  "lignes_rejetees": 4,
+  "motifs_rejet": {
+    "champ manquant : supplier_id": 1,
+    "price_cents non entier": 1,
+    "product_id absent du catalogue": 1,
+    "doublon de offer_id": 1
+  },
+  "pages_en_echec": [],
+  "duree_s": 1.77,
+  "concurrence_max_observee": 3
+}

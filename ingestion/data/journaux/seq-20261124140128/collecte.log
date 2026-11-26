@@ -1,0 +1,9 @@
+14:01:30 INFO début : scénario=clean run=seq-20261124140128 concurrence=1 max_essais=4 timeout=1.0s
+14:01:30 INFO page 1 reçue (essai 1, 4 offres)
+14:01:30 INFO page 2 reçue (essai 1, 4 offres)
+14:01:30 INFO page 3 reçue (essai 1, 4 offres)
+14:01:31 INFO page 4 reçue (essai 1, 4 offres)
+14:01:31 INFO page 5 reçue (essai 1, 4 offres)
+14:01:31 INFO page 6 reçue (essai 1, 4 offres)
+14:01:31 INFO lot complet publié : ingestion/data/valid/offres.jsonl
+14:01:31 INFO bilan : {"run": "seq-20261124140128", "scenario": "clean", "concurrence": 1, "statut": "publié", "pages_attendues": 6, "pages_recues": 6, "requetes_http": 6, "reprises": 0, "erreurs": {}, "lignes_vues": 24, "lignes_valides": 24, "lignes_rejetees": 0, "motifs_rejet": {}, "pages_en_echec": [], "duree_s": 0.775, "concurrence_max_observee": 1}

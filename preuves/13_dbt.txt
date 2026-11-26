@@ -1,0 +1,139 @@
+### dbt debug
+ Container novamarket-s1-dbt-run-4adfc2c8b136 Creating 
+ Container novamarket-s1-dbt-run-4adfc2c8b136 Created 
+10:29:07  Running with dbt=1.12.7
+10:29:07  dbt version: 1.12.7
+10:29:07  python version: 3.12.16
+10:29:07  python path: /usr/local/bin/python3.12
+10:29:07  os info: Linux-7.0.14-linuxkit-x86_64-with-glibc2.36
+10:29:07  Using profiles dir at /work/profil
+10:29:07  Using profiles.yml file at /work/profil/profiles.yml
+10:29:07  Using dbt_project.yml file at /projet/dbt_project.yml
+10:29:07  adapter type: postgres
+10:29:07  adapter version: 1.9.0
+10:29:07  Configuration:
+10:29:07    profiles.yml file [OK found and valid]
+10:29:07    dbt_project.yml file [OK found and valid]
+10:29:07  Required dependencies:
+10:29:07   - git [OK found]
+
+10:29:07  Connection:
+10:29:07    host: postgres
+10:29:07    port: 5432
+10:29:07    user: atelier
+10:29:07    database: novamarket
+10:29:07    schema: dbt_dev
+10:29:07    connect_timeout: 10
+10:29:07    role: None
+10:29:07    search_path: None
+10:29:07    keepalives_idle: 0
+10:29:07    sslmode: None
+10:29:07    sslcert: None
+10:29:07    sslkey: None
+10:29:07    sslrootcert: None
+10:29:07    application_name: dbt
+10:29:07    retries: 1
+10:29:07  Registered adapter: postgres=1.9.0
+10:29:08    Connection test: [OK connection ok]
+
+10:29:08  All checks passed!
+### dbt compile
+ Container novamarket-s1-dbt-run-ff0699ffbcd7 Creating 
+ Container novamarket-s1-dbt-run-ff0699ffbcd7 Created 
+10:29:31  Running with dbt=1.12.7
+10:29:34  Registered adapter: postgres=1.9.0
+10:29:35  Unable to do partial parsing because saved manifest not found. Starting full parse.
+10:29:45  Found 5 models, 22 data tests, 7 sources, 476 macros
+10:29:45  
+10:29:45  Concurrency: 2 threads (target='dev')
+10:29:45  
+### dbt run
+ Container novamarket-s1-dbt-run-aa429076da67 Creating 
+ Container novamarket-s1-dbt-run-aa429076da67 Created 
+10:30:04  Running with dbt=1.12.7
+10:30:05  Registered adapter: postgres=1.9.0
+10:30:08  Found 5 models, 22 data tests, 7 sources, 476 macros
+10:30:08  
+10:30:08  Concurrency: 2 threads (target='dev')
+10:30:08  
+10:30:09  2 of 4 START sql view model dbt_dev_staging.stg_metier__lignes_vendues ......... [RUN]
+10:30:09  1 of 4 START sql view model dbt_dev_staging.stg_fournisseur__offres ............ [RUN]
+10:30:10  2 of 4 OK created sql view model dbt_dev_staging.stg_metier__lignes_vendues .... [CREATE VIEW in 1.00s]
+10:30:10  1 of 4 OK created sql view model dbt_dev_staging.stg_fournisseur__offres ....... [CREATE VIEW in 1.00s]
+10:30:10  3 of 4 START sql view model dbt_dev_staging.stg_metier__produits ............... [RUN]
+10:30:10  3 of 4 OK created sql view model dbt_dev_staging.stg_metier__produits .......... [CREATE VIEW in 0.10s]
+10:30:10  4 of 4 START sql table model dbt_dev_marts.mart_offres_par_produit ............. [RUN]
+10:30:11  4 of 4 OK created sql table model dbt_dev_marts.mart_offres_par_produit ........ [SELECT 20 in 0.25s]
+10:30:11  
+10:30:11  Finished running 1 table model, 3 view models in 0 hours 0 minutes and 2.85 seconds (2.85s).
+10:30:11  
+10:30:11  Completed successfully
+10:30:11  
+10:30:11  Done. PASS=4 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=4
+### dbt build
+ Container novamarket-s1-dbt-run-9eb026747247 Creating 
+ Container novamarket-s1-dbt-run-9eb026747247 Created 
+10:30:18  Running with dbt=1.12.7
+10:30:18  Registered adapter: postgres=1.9.0
+10:30:20  Found 5 models, 22 data tests, 7 sources, 476 macros
+10:30:20  
+10:30:20  Concurrency: 2 threads (target='dev')
+10:30:20  
+10:30:20  1 of 26 START sql view model dbt_dev_staging.stg_metier__lignes_vendues ........ [RUN]
+10:30:20  2 of 26 START test source_not_null_fournisseur_fournisseurs_supplier_id ........ [RUN]
+10:30:20  2 of 26 PASS source_not_null_fournisseur_fournisseurs_supplier_id .............. [PASS in 0.25s]
+10:30:20  3 of 26 START test source_not_null_fournisseur_offres_observations_observed_on . [RUN]
+10:30:20  3 of 26 PASS source_not_null_fournisseur_offres_observations_observed_on ....... [PASS in 0.15s]
+10:30:20  4 of 26 START test source_not_null_fournisseur_offres_observations_offer_id .... [RUN]
+10:30:20  1 of 26 OK created sql view model dbt_dev_staging.stg_metier__lignes_vendues ... [CREATE VIEW in 0.45s]
+10:30:21  5 of 26 START test source_not_null_metier_products_product_id .................. [RUN]
+10:30:21  4 of 26 PASS source_not_null_fournisseur_offres_observations_offer_id .......... [PASS in 0.11s]
+10:30:21  6 of 26 START test source_unique_fournisseur_fournisseurs_supplier_id .......... [RUN]
+10:30:21  5 of 26 PASS source_not_null_metier_products_product_id ........................ [PASS in 0.14s]
+10:30:21  7 of 26 START test source_unique_metier_products_product_id .................... [RUN]
+10:30:21  6 of 26 PASS source_unique_fournisseur_fournisseurs_supplier_id ................ [PASS in 0.12s]
+10:30:21  8 of 26 START test not_null_stg_metier__lignes_vendues_ligne_id ................ [RUN]
+10:30:21  7 of 26 PASS source_unique_metier_products_product_id .......................... [PASS in 0.13s]
+10:30:21  9 of 26 START test unique_stg_metier__lignes_vendues_ligne_id .................. [RUN]
+10:30:21  8 of 26 PASS not_null_stg_metier__lignes_vendues_ligne_id ...................... [PASS in 0.16s]
+10:30:21  10 of 26 START sql view model dbt_dev_staging.stg_fournisseur__offres .......... [RUN]
+10:30:21  9 of 26 PASS unique_stg_metier__lignes_vendues_ligne_id ........................ [PASS in 0.14s]
+10:30:21  11 of 26 START sql view model dbt_dev_staging.stg_metier__produits ............. [RUN]
+10:30:21  10 of 26 OK created sql view model dbt_dev_staging.stg_fournisseur__offres ..... [CREATE VIEW in 0.32s]
+10:30:21  12 of 26 START test accepted_values_stg_fournisseur__offres_devise__EUR ........ [RUN]
+10:30:21  11 of 26 OK created sql view model dbt_dev_staging.stg_metier__produits ........ [CREATE VIEW in 0.34s]
+10:30:21  13 of 26 START test assert_offres_cle_unique ................................... [RUN]
+10:30:21  12 of 26 PASS accepted_values_stg_fournisseur__offres_devise__EUR .............. [PASS in 0.13s]
+10:30:21  14 of 26 START test not_null_stg_fournisseur__offres_fournisseur_id ............ [RUN]
+10:30:21  13 of 26 PASS assert_offres_cle_unique ......................................... [PASS in 0.11s]
+10:30:21  15 of 26 START test not_null_stg_fournisseur__offres_offre_id .................. [RUN]
+10:30:22  14 of 26 PASS not_null_stg_fournisseur__offres_fournisseur_id .................. [PASS in 0.11s]
+10:30:22  16 of 26 START test not_null_stg_fournisseur__offres_prix_cents ................ [RUN]
+10:30:22  15 of 26 PASS not_null_stg_fournisseur__offres_offre_id ........................ [PASS in 0.10s]
+10:30:22  17 of 26 START test not_null_stg_fournisseur__offres_produit_id ................ [RUN]
+10:30:22  16 of 26 PASS not_null_stg_fournisseur__offres_prix_cents ...................... [PASS in 0.11s]
+10:30:22  18 of 26 START test relationships_stg_fournisseur__offres_fournisseur_id__supplier_id__source_fournisseur_fournisseurs_  [RUN]
+10:30:22  17 of 26 PASS not_null_stg_fournisseur__offres_produit_id ...................... [PASS in 0.10s]
+10:30:22  19 of 26 START test not_null_stg_metier__produits_produit_id ................... [RUN]
+10:30:22  19 of 26 PASS not_null_stg_metier__produits_produit_id ......................... [PASS in 0.16s]
+10:30:22  20 of 26 START test relationships_stg_fournisseur__offres_produit_id__produit_id__ref_stg_metier__produits_  [RUN]
+10:30:22  18 of 26 PASS relationships_stg_fournisseur__offres_fournisseur_id__supplier_id__source_fournisseur_fournisseurs_  [PASS in 0.20s]
+10:30:22  21 of 26 START test unique_stg_metier__produits_produit_id ..................... [RUN]
+10:30:22  20 of 26 PASS relationships_stg_fournisseur__offres_produit_id__produit_id__ref_stg_metier__produits_  [PASS in 0.16s]
+10:30:22  21 of 26 PASS unique_stg_metier__produits_produit_id ........................... [PASS in 0.13s]
+10:30:22  22 of 26 START sql table model dbt_dev_marts.mart_offres_par_produit ........... [RUN]
+10:30:22  22 of 26 OK created sql table model dbt_dev_marts.mart_offres_par_produit ...... [SELECT 20 in 0.20s]
+10:30:22  23 of 26 START test assert_mart_couvre_toutes_les_offres ....................... [RUN]
+10:30:22  24 of 26 START test assert_prix_positifs ....................................... [RUN]
+10:30:22  24 of 26 PASS assert_prix_positifs ............................................. [PASS in 0.08s]
+10:30:22  23 of 26 PASS assert_mart_couvre_toutes_les_offres ............................. [PASS in 0.08s]
+10:30:22  25 of 26 START test not_null_mart_offres_par_produit_nb_offres ................. [RUN]
+10:30:22  26 of 26 START test not_null_mart_offres_par_produit_produit_id ................ [RUN]
+10:30:22  25 of 26 PASS not_null_mart_offres_par_produit_nb_offres ....................... [PASS in 0.12s]
+10:30:22  26 of 26 PASS not_null_mart_offres_par_produit_produit_id ...................... [PASS in 0.10s]
+10:30:23  
+10:30:23  Finished running 1 table model, 22 data tests, 3 view models in 0 hours 0 minutes and 2.80 seconds (2.80s).
+10:30:23  
+10:30:23  Completed successfully
+10:30:23  
+10:30:23  Done. PASS=26 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=26

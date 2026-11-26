@@ -1,0 +1,598 @@
+>> environnement
+Python 3.12.4
+openjdk version "21.0.13.1" 2026-11-17 LTS
+[Stage 0:>                                                          (0 + 0) / 2][Stage 0:>                                                          (0 + 2) / 2]                                                                                Spark local 4.1.1 opérationnel
+>> M1 métadonnées de la source
+{"revision": "5941adbf8c0b9930e47002dc3103de3f9291360d", "parquet": 371, "octets": 39350805895, "taille_partition": 41899074, "licence_miroir": "unknown"}
+>> M2 streaming distant borné (20000 lignes)
+Streaming accessible ; colonnes : Start_Zone, Trip_Distance, Trip_Duration
+{"source": "hf://DinoPonjevic/NYC_TaxiData", "revision": "5941adbf8c0b9930e47002dc3103de3f9291360d", "partition": "2024/yellow/yellow_tripdata_2024-01.parquet", "colonnes": ["Start_Zone", "Trip_Distance", "Trip_Duration"], "limite": 20000, "parcourues": 20000, "retenues": 20000, "rejetees": 0, "motifs_rejet": {}, "fichier": "volumetrie/sorties/extraction_20261126113244.jsonl", "statut": "terminé", "duree_s": 7.89}
+/Users/Lucasmassako/miniconda3/lib/python3.12/multiprocessing/resource_tracker.py:254: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '
+>> M3 contrôle qualité de volumetrie/sorties/extraction_20261126113244.jsonl
+{"entree": "extraction_20261126113244.jsonl", "lignes_avant": 20000, "lignes_apres": 19575, "rejets_par_regle": {"R2 distance <= 0 ou > 100 miles": 388, "R4 vitesse > 100 mph": 6, "R3 durée <= 0 ou > 4 h": 31}, "provenance": {"source": "hf://DinoPonjevic/NYC_TaxiData", "revision": "5941adbf8c0b9930e47002dc3103de3f9291360d", "partition": "2024/yellow/yellow_tripdata_2024-01.parquet"}, "lignes_rejetees": 425, "fichier_spark": "extraction_20261126113244.spark.jsonl"}
+>> M4 pipeline Spark
+WARNING: Using incubator modules: jdk.incubator.vector
+Using Spark's default log4j profile: org/apache/spark/log4j2-defaults.properties
+Setting default log level to "WARN".
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+26/11/26 11:33:10 WARN NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable
+
+=== 1. Lecture et schémas bruts ===
+[Stage 0:>                                                          (0 + 2) / 2][Stage 0:=============================>                             (1 + 1) / 2]                                                                                [Stage 2:>                                                          (0 + 2) / 2][Stage 2:=============================>                             (1 + 1) / 2]                                                                                root
+ |-- Start_Zone: long (nullable = true)
+ |-- Trip_Distance: double (nullable = true)
+ |-- Trip_Duration: double (nullable = true)
+ |-- position_source: long (nullable = true)
+ |-- source_partition: string (nullable = true)
+ |-- source_revision: string (nullable = true)
+
+root
+ |-- LocationID: string (nullable = true)
+ |-- Borough: string (nullable = true)
+ |-- Zone: string (nullable = true)
+ |-- service_zone: string (nullable = true)
+
+
+=== 2. Typage explicite ===
+root
+ |-- zone_id: integer (nullable = true)
+ |-- distance_miles: double (nullable = true)
+ |-- duree_s: double (nullable = true)
+
+
+=== 3. Filtre et colonne calculée ===
+[Stage 8:=============================>                             (1 + 1) / 2]                                                                                
+=== 4. Contrôle de la clé de jointure (zones.LocationID) ===
+
+=== 5. Non-appariements (trajets sans zone connue) ===
++-------+-----+
+|zone_id|count|
++-------+-----+
++-------+-----+
+
+
+=== 6. Jointure et effectifs avant / après ===
+
+=== 7. Agrégation par arrondissement ===
+[Stage 28:>                                                         (0 + 2) / 2][Stage 28:=============================>                            (1 + 1) / 2]                                                                                +--------------+----------+----------------------+-----------------+-------------------+
+|arrondissement|nb_trajets|distance_moyenne_miles|duree_moyenne_min|vitesse_mediane_mph|
++--------------+----------+----------------------+-----------------+-------------------+
+|Manhattan     |18763     |2.761                 |14.9             |10.45              |
+|Queens        |415       |11.467                |22.53            |29.63              |
+|Brooklyn      |315       |4.404                 |18.14            |12.49              |
+|Unknown       |51        |2.97                  |15.59            |10.19              |
+|Bronx         |20        |2.221                 |10.29            |10.49              |
+|N/A           |10        |3.064                 |5.48             |29.03              |
+|Staten Island |1         |17.6                  |37.97            |27.81              |
++--------------+----------+----------------------+-----------------+-------------------+
+
+
+=== 8. Partitionnement et plan d'exécution ===
+partitions entrée : 2 | partitions agrégat : 1
+== Physical Plan ==
+AdaptiveSparkPlan (33)
++- == Final Plan ==
+   ResultQueryStage (20)
+   +- * Sort (19)
+      +- AQEShuffleRead (18)
+         +- ShuffleQueryStage (17), Statistics(sizeInBytes=408.0 B, rowCount=7)
+            +- Exchange (16)
+               +- ObjectHashAggregate (15)
+                  +- AQEShuffleRead (14)
+                     +- ShuffleQueryStage (13), Statistics(sizeInBytes=323.2 KiB, rowCount=12)
+                        +- Exchange (12)
+                           +- ObjectHashAggregate (11)
+                              +- * Project (10)
+                                 +- * BroadcastHashJoin Inner BuildRight (9)
+                                    :- * Project (3)
+                                    :  +- * Filter (2)
+                                    :     +- Scan json  (1)
+                                    +- BroadcastQueryStage (8), Statistics(sizeInBytes=1026.1 KiB, rowCount=265)
+                                       +- BroadcastExchange (7)
+                                          +- * Project (6)
+                                             +- * Filter (5)
+                                                +- Scan csv  (4)
++- == Initial Plan ==
+   Sort (32)
+   +- Exchange (31)
+      +- ObjectHashAggregate (30)
+         +- Exchange (29)
+            +- ObjectHashAggregate (28)
+               +- Project (27)
+                  +- BroadcastHashJoin Inner BuildRight (26)
+                     :- Project (22)
+                     :  +- Filter (21)
+                     :     +- Scan json  (1)
+                     +- BroadcastExchange (25)
+                        +- Project (24)
+                           +- Filter (23)
+                              +- Scan csv  (4)
+
+
+(1) Scan json 
+Output [3]: [Start_Zone#6L, Trip_Distance#7, Trip_Duration#8]
+Batched: false
+Location: InMemoryFileIndex [file:/Users/Lucasmassako/Desktop/YNOV /M1 DATA IA /Pipeline et SQL/DEV ENV /novamarket/volumetrie/sorties/extraction_20261126113244.spark.jsonl]
+PushedFilters: [IsNotNull(Start_Zone), IsNotNull(Trip_Distance), IsNotNull(Trip_Duration), GreaterThan(Trip_Distance,0.0), GreaterThan(Trip_Duration,0.0)]
+ReadSchema: struct<Start_Zone:bigint,Trip_Distance:double,Trip_Duration:double>
+
+(2) Filter [codegen id : 2]
+Input [3]: [Start_Zone#6L, Trip_Distance#7, Trip_Duration#8]
+Condition : (((((isnotnull(Start_Zone#6L) AND isnotnull(Trip_Distance#7)) AND isnotnull(Trip_Duration#8)) AND isnotnull(cast(Start_Zone#6L as int))) AND (Trip_Distance#7 > 0.0)) AND (Trip_Duration#8 > 0.0))
+
+(3) Project [codegen id : 2]
+Output [4]: [cast(Start_Zone#6L as int) AS zone_id#51, Trip_Distance#7 AS distance_miles#52, Trip_Duration#8 AS duree_s#53, round((Trip_Distance#7 / (Trip_Duration#8 / 3600.0)), 2) AS vitesse_mph#59]
+Input [3]: [Start_Zone#6L, Trip_Distance#7, Trip_Duration#8]
+
+(4) Scan csv 
+Output [2]: [LocationID#29, Borough#30]
+Batched: false
+Location: InMemoryFileIndex [file:/Users/Lucasmassako/Desktop/YNOV /M1 DATA IA /Pipeline et SQL/DEV ENV /novamarket/volumetrie/secours/zones.csv]
+ReadSchema: struct<LocationID:string,Borough:string>
+
+(5) Filter [codegen id : 1]
+Input [2]: [LocationID#29, Borough#30]
+Condition : isnotnull(cast(LocationID#29 as int))
+
+(6) Project [codegen id : 1]
+Output [2]: [cast(LocationID#29 as int) AS zone_id#55, Borough#30 AS arrondissement#56]
+Input [2]: [LocationID#29, Borough#30]
+
+(7) BroadcastExchange
+Input [2]: [zone_id#55, arrondissement#56]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, true] as bigint)),false), [plan_id=826]
+
+(8) BroadcastQueryStage
+Output [2]: [zone_id#55, arrondissement#56]
+Arguments: 0
+
+(9) BroadcastHashJoin [codegen id : 2]
+Left keys [1]: [zone_id#51]
+Right keys [1]: [zone_id#55]
+Join type: Inner
+Join condition: None
+
+(10) Project [codegen id : 2]
+Output [4]: [distance_miles#52, duree_s#53, vitesse_mph#59, arrondissement#56]
+Input [6]: [zone_id#51, distance_miles#52, duree_s#53, vitesse_mph#59, zone_id#55, arrondissement#56]
+
+(11) ObjectHashAggregate
+Input [4]: [distance_miles#52, duree_s#53, vitesse_mph#59, arrondissement#56]
+Keys [1]: [arrondissement#56]
+Functions [4]: [partial_count(1), partial_avg(distance_miles#52), partial_avg(duree_s#53), partial_percentile_approx(vitesse_mph#59, 0.5, 10000, 0, 0)]
+Aggregate Attributes [6]: [count#141L, sum#142, count#143L, sum#144, count#145L, buf#202]
+Results [7]: [arrondissement#56, count#147L, sum#148, count#149L, sum#150, count#151L, buf#203]
+
+(12) Exchange
+Input [7]: [arrondissement#56, count#147L, sum#148, count#149L, sum#150, count#151L, buf#203]
+Arguments: hashpartitioning(arrondissement#56, 2), ENSURE_REQUIREMENTS, [plan_id=887]
+
+(13) ShuffleQueryStage
+Output [7]: [arrondissement#56, count#147L, sum#148, count#149L, sum#150, count#151L, buf#203]
+Arguments: 1
+
+(14) AQEShuffleRead
+Input [7]: [arrondissement#56, count#147L, sum#148, count#149L, sum#150, count#151L, buf#203]
+Arguments: coalesced
+
+(15) ObjectHashAggregate
+Input [7]: [arrondissement#56, count#147L, sum#148, count#149L, sum#150, count#151L, buf#203]
+Keys [1]: [arrondissement#56]
+Functions [4]: [count(1), avg(distance_miles#52), avg(duree_s#53), percentile_approx(vitesse_mph#59, 0.5, 10000, 0, 0)]
+Aggregate Attributes [4]: [count(1)#132L, avg(distance_miles#52)#133, avg(duree_s#53)#134, percentile_approx(vitesse_mph#59, 0.5, 10000, 0, 0)#135]
+Results [5]: [arrondissement#56, count(1)#132L AS nb_trajets#122L, round(avg(distance_miles#52)#133, 3) AS distance_moyenne_miles#123, round((avg(duree_s#53)#134 / 60.0), 2) AS duree_moyenne_min#124, round(percentile_approx(vitesse_mph#59, 0.5, 10000, 0, 0)#135, 2) AS vitesse_mediane_mph#125]
+
+(16) Exchange
+Input [5]: [arrondissement#56, nb_trajets#122L, distance_moyenne_miles#123, duree_moyenne_min#124, vitesse_mediane_mph#125]
+Arguments: rangepartitioning(nb_trajets#122L DESC NULLS LAST, 2), ENSURE_REQUIREMENTS, [plan_id=919]
+
+(17) ShuffleQueryStage
+Output [5]: [arrondissement#56, nb_trajets#122L, distance_moyenne_miles#123, duree_moyenne_min#124, vitesse_mediane_mph#125]
+Arguments: 2
+
+(18) AQEShuffleRead
+Input [5]: [arrondissement#56, nb_trajets#122L, distance_moyenne_miles#123, duree_moyenne_min#124, vitesse_mediane_mph#125]
+Arguments: coalesced
+
+(19) Sort [codegen id : 3]
+Input [5]: [arrondissement#56, nb_trajets#122L, distance_moyenne_miles#123, duree_moyenne_min#124, vitesse_mediane_mph#125]
+Arguments: [nb_trajets#122L DESC NULLS LAST], true, 0
+
+(20) ResultQueryStage
+Output [5]: [arrondissement#56, nb_trajets#122L, distance_moyenne_miles#123, duree_moyenne_min#124, vitesse_mediane_mph#125]
+Arguments: 3
+
+(21) Filter
+Input [3]: [Start_Zone#6L, Trip_Distance#7, Trip_Duration#8]
+Condition : (((((isnotnull(Start_Zone#6L) AND isnotnull(Trip_Distance#7)) AND isnotnull(Trip_Duration#8)) AND isnotnull(cast(Start_Zone#6L as int))) AND (Trip_Distance#7 > 0.0)) AND (Trip_Duration#8 > 0.0))
+
+(22) Project
+Output [4]: [cast(Start_Zone#6L as int) AS zone_id#51, Trip_Distance#7 AS distance_miles#52, Trip_Duration#8 AS duree_s#53, round((Trip_Distance#7 / (Trip_Duration#8 / 3600.0)), 2) AS vitesse_mph#59]
+Input [3]: [Start_Zone#6L, Trip_Distance#7, Trip_Duration#8]
+
+(23) Filter
+Input [2]: [LocationID#29, Borough#30]
+Condition : isnotnull(cast(LocationID#29 as int))
+
+(24) Project
+Output [2]: [cast(LocationID#29 as int) AS zone_id#55, Borough#30 AS arrondissement#56]
+Input [2]: [LocationID#29, Borough#30]
+
+(25) BroadcastExchange
+Input [2]: [zone_id#55, arrondissement#56]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, true] as bigint)),false), [plan_id=789]
+
+(26) BroadcastHashJoin
+Left keys [1]: [zone_id#51]
+Right keys [1]: [zone_id#55]
+Join type: Inner
+Join condition: None
+
+(27) Project
+Output [4]: [distance_miles#52, duree_s#53, vitesse_mph#59, arrondissement#56]
+Input [6]: [zone_id#51, distance_miles#52, duree_s#53, vitesse_mph#59, zone_id#55, arrondissement#56]
+
+(28) ObjectHashAggregate
+Input [4]: [distance_miles#52, duree_s#53, vitesse_mph#59, arrondissement#56]
+Keys [1]: [arrondissement#56]
+Functions [4]: [partial_count(1), partial_avg(distance_miles#52), partial_avg(duree_s#53), partial_percentile_approx(vitesse_mph#59, 0.5, 10000, 0, 0)]
+Aggregate Attributes [6]: [count#141L, sum#142, count#143L, sum#144, count#145L, buf#202]
+Results [7]: [arrondissement#56, count#147L, sum#148, count#149L, sum#150, count#151L, buf#203]
+
+(29) Exchange
+Input [7]: [arrondissement#56, count#147L, sum#148, count#149L, sum#150, count#151L, buf#203]
+Arguments: hashpartitioning(arrondissement#56, 2), ENSURE_REQUIREMENTS, [plan_id=794]
+
+(30) ObjectHashAggregate
+Input [7]: [arrondissement#56, count#147L, sum#148, count#149L, sum#150, count#151L, buf#203]
+Keys [1]: [arrondissement#56]
+Functions [4]: [count(1), avg(distance_miles#52), avg(duree_s#53), percentile_approx(vitesse_mph#59, 0.5, 10000, 0, 0)]
+Aggregate Attributes [4]: [count(1)#132L, avg(distance_miles#52)#133, avg(duree_s#53)#134, percentile_approx(vitesse_mph#59, 0.5, 10000, 0, 0)#135]
+Results [5]: [arrondissement#56, count(1)#132L AS nb_trajets#122L, round(avg(distance_miles#52)#133, 3) AS distance_moyenne_miles#123, round((avg(duree_s#53)#134 / 60.0), 2) AS duree_moyenne_min#124, round(percentile_approx(vitesse_mph#59, 0.5, 10000, 0, 0)#135, 2) AS vitesse_mediane_mph#125]
+
+(31) Exchange
+Input [5]: [arrondissement#56, nb_trajets#122L, distance_moyenne_miles#123, duree_moyenne_min#124, vitesse_mediane_mph#125]
+Arguments: rangepartitioning(nb_trajets#122L DESC NULLS LAST, 2), ENSURE_REQUIREMENTS, [plan_id=797]
+
+(32) Sort
+Input [5]: [arrondissement#56, nb_trajets#122L, distance_moyenne_miles#123, duree_moyenne_min#124, vitesse_mediane_mph#125]
+Arguments: [nb_trajets#122L DESC NULLS LAST], true, 0
+
+(33) AdaptiveSparkPlan
+Output [5]: [arrondissement#56, nb_trajets#122L, distance_moyenne_miles#123, duree_moyenne_min#124, vitesse_mediane_mph#125]
+Arguments: isFinalPlan=true
+
+
+
+=== 9. Écriture Parquet puis relecture ===
+[Stage 45:>                                                         (0 + 1) / 1]                                                                                root
+ |-- arrondissement: string (nullable = true)
+ |-- nb_trajets: long (nullable = true)
+ |-- distance_moyenne_miles: double (nullable = true)
+ |-- duree_moyenne_min: double (nullable = true)
+ |-- vitesse_mediane_mph: double (nullable = true)
+
++--------------+----------+----------------------+-----------------+-------------------+
+|arrondissement|nb_trajets|distance_moyenne_miles|duree_moyenne_min|vitesse_mediane_mph|
++--------------+----------+----------------------+-----------------+-------------------+
+|Manhattan     |18763     |2.761                 |14.9             |10.45              |
+|Queens        |415       |11.467                |22.53            |29.63              |
+|Brooklyn      |315       |4.404                 |18.14            |12.49              |
+|Unknown       |51        |2.97                  |15.59            |10.19              |
+|Bronx         |20        |2.221                 |10.29            |10.49              |
+|N/A           |10        |3.064                 |5.48             |29.03              |
+|Staten Island |1         |17.6                  |37.97            |27.81              |
++--------------+----------+----------------------+-----------------+-------------------+
+
+
+=== Bilan ===
+{
+  "trajets_lus": 19575,
+  "zones_lues": 265,
+  "trajets_apres_filtre": 19575,
+  "trajets_filtres": 0,
+  "zones_distinctes": 265,
+  "cle_zones_unique": true,
+  "trajets_sans_zone": 0,
+  "trajets_apres_jointure": 19575,
+  "jointure_sans_multiplication": true,
+  "partitions_entree": 2,
+  "partitions_agregat": 1,
+  "lignes_parquet": 7,
+  "somme_nb_trajets_parquet": 19575,
+  "parquet_coherent": true
+}
+WARNING: Using incubator modules: jdk.incubator.vector
+Using Spark's default log4j profile: org/apache/spark/log4j2-defaults.properties
+Setting default log level to "WARN".
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+26/11/26 11:34:09 WARN NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable
+
+=== 1. Lecture et schémas bruts ===
+[Stage 0:>                                                          (0 + 1) / 1]                                                                                root
+ |-- Start_Zone: long (nullable = true)
+ |-- Trip_Distance: double (nullable = true)
+ |-- Trip_Duration: long (nullable = true)
+
+root
+ |-- LocationID: string (nullable = true)
+ |-- Borough: string (nullable = true)
+ |-- Zone: string (nullable = true)
+ |-- service_zone: string (nullable = true)
+
+
+=== 2. Typage explicite ===
+root
+ |-- zone_id: integer (nullable = true)
+ |-- distance_miles: double (nullable = true)
+ |-- duree_s: double (nullable = true)
+
+
+=== 3. Filtre et colonne calculée ===
+
+=== 4. Contrôle de la clé de jointure (zones.LocationID) ===
+
+=== 5. Non-appariements (trajets sans zone connue) ===
++-------+-----+
+|zone_id|count|
++-------+-----+
+|999    |1    |
++-------+-----+
+
+
+=== 6. Jointure et effectifs avant / après ===
+
+=== 7. Agrégation par arrondissement ===
+[Stage 30:>                                                         (0 + 1) / 1]                                                                                +--------------+----------+----------------------+-----------------+-------------------+
+|arrondissement|nb_trajets|distance_moyenne_miles|duree_moyenne_min|vitesse_mediane_mph|
++--------------+----------+----------------------+-----------------+-------------------+
+|Manhattan     |2         |2.25                  |9.17             |13.5               |
+|EWR           |1         |2.5                   |10.0             |15.0               |
+|Queens        |1         |4.0                   |15.0             |16.0               |
++--------------+----------+----------------------+-----------------+-------------------+
+
+
+=== 8. Partitionnement et plan d'exécution ===
+partitions entrée : 1 | partitions agrégat : 1
+== Physical Plan ==
+AdaptiveSparkPlan (35)
++- == Final Plan ==
+   ResultQueryStage (21)
+   +- * Sort (20)
+      +- AQEShuffleRead (19)
+         +- ShuffleQueryStage (18), Statistics(sizeInBytes=176.0 B, rowCount=3)
+            +- Exchange (17)
+               +- ObjectHashAggregate (16)
+                  +- AQEShuffleRead (15)
+                     +- ShuffleQueryStage (14), Statistics(sizeInBytes=392.0 B, rowCount=3)
+                        +- Exchange (13)
+                           +- ObjectHashAggregate (12)
+                              +- * Project (11)
+                                 +- * BroadcastHashJoin Inner BuildLeft (10)
+                                    :- BroadcastQueryStage (6), Statistics(sizeInBytes=1031.8 KiB, rowCount=5)
+                                    :  +- BroadcastExchange (5)
+                                    :     +- * Project (4)
+                                    :        +- * Project (3)
+                                    :           +- * Filter (2)
+                                    :              +- Scan json  (1)
+                                    +- * Project (9)
+                                       +- * Filter (8)
+                                          +- Scan csv  (7)
++- == Initial Plan ==
+   Sort (34)
+   +- Exchange (33)
+      +- ObjectHashAggregate (32)
+         +- Exchange (31)
+            +- ObjectHashAggregate (30)
+               +- Project (29)
+                  +- BroadcastHashJoin Inner BuildLeft (28)
+                     :- BroadcastExchange (25)
+                     :  +- Project (24)
+                     :     +- Project (23)
+                     :        +- Filter (22)
+                     :           +- Scan json  (1)
+                     +- Project (27)
+                        +- Filter (26)
+                           +- Scan csv  (7)
+
+
+(1) Scan json 
+Output [3]: [Start_Zone#6L, Trip_Distance#7, Trip_Duration#8L]
+Batched: false
+Location: InMemoryFileIndex [file:/Users/Lucasmassako/Desktop/YNOV /M1 DATA IA /Pipeline et SQL/DEV ENV /novamarket/volumetrie/secours/trajets_fictifs.jsonl]
+PushedFilters: [IsNotNull(Start_Zone), IsNotNull(Trip_Distance), IsNotNull(Trip_Duration), GreaterThan(Trip_Distance,0.0)]
+ReadSchema: struct<Start_Zone:bigint,Trip_Distance:double,Trip_Duration:bigint>
+
+(2) Filter [codegen id : 1]
+Input [3]: [Start_Zone#6L, Trip_Distance#7, Trip_Duration#8L]
+Condition : (((((isnotnull(Start_Zone#6L) AND isnotnull(Trip_Distance#7)) AND isnotnull(Trip_Duration#8L)) AND isnotnull(cast(Start_Zone#6L as int))) AND (Trip_Distance#7 > 0.0)) AND (cast(Trip_Duration#8L as double) > 0.0))
+
+(3) Project [codegen id : 1]
+Output [3]: [cast(Start_Zone#6L as int) AS zone_id#45, Trip_Distance#7 AS distance_miles#46, cast(Trip_Duration#8L as double) AS duree_s#47]
+Input [3]: [Start_Zone#6L, Trip_Distance#7, Trip_Duration#8L]
+
+(4) Project [codegen id : 1]
+Output [4]: [zone_id#45, distance_miles#46, duree_s#47, round((distance_miles#46 / (duree_s#47 / 3600.0)), 2) AS vitesse_mph#53]
+Input [3]: [zone_id#45, distance_miles#46, duree_s#47]
+
+(5) BroadcastExchange
+Input [4]: [zone_id#45, distance_miles#46, duree_s#47, vitesse_mph#53]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, true] as bigint)),false), [plan_id=851]
+
+(6) BroadcastQueryStage
+Output [4]: [zone_id#45, distance_miles#46, duree_s#47, vitesse_mph#53]
+Arguments: 0
+
+(7) Scan csv 
+Output [2]: [LocationID#26, Borough#27]
+Batched: false
+Location: InMemoryFileIndex [file:/Users/Lucasmassako/Desktop/YNOV /M1 DATA IA /Pipeline et SQL/DEV ENV /novamarket/volumetrie/secours/zones.csv]
+ReadSchema: struct<LocationID:string,Borough:string>
+
+(8) Filter
+Input [2]: [LocationID#26, Borough#27]
+Condition : isnotnull(cast(LocationID#26 as int))
+
+(9) Project
+Output [2]: [cast(LocationID#26 as int) AS zone_id#49, Borough#27 AS arrondissement#50]
+Input [2]: [LocationID#26, Borough#27]
+
+(10) BroadcastHashJoin [codegen id : 2]
+Left keys [1]: [zone_id#45]
+Right keys [1]: [zone_id#49]
+Join type: Inner
+Join condition: None
+
+(11) Project [codegen id : 2]
+Output [4]: [distance_miles#46, duree_s#47, vitesse_mph#53, arrondissement#50]
+Input [6]: [zone_id#45, distance_miles#46, duree_s#47, vitesse_mph#53, zone_id#49, arrondissement#50]
+
+(12) ObjectHashAggregate
+Input [4]: [distance_miles#46, duree_s#47, vitesse_mph#53, arrondissement#50]
+Keys [1]: [arrondissement#50]
+Functions [4]: [partial_count(1), partial_avg(distance_miles#46), partial_avg(duree_s#47), partial_percentile_approx(vitesse_mph#53, 0.5, 10000, 0, 0)]
+Aggregate Attributes [6]: [count#135L, sum#136, count#137L, sum#138, count#139L, buf#189]
+Results [7]: [arrondissement#50, count#141L, sum#142, count#143L, sum#144, count#145L, buf#190]
+
+(13) Exchange
+Input [7]: [arrondissement#50, count#141L, sum#142, count#143L, sum#144, count#145L, buf#190]
+Arguments: hashpartitioning(arrondissement#50, 2), ENSURE_REQUIREMENTS, [plan_id=914]
+
+(14) ShuffleQueryStage
+Output [7]: [arrondissement#50, count#141L, sum#142, count#143L, sum#144, count#145L, buf#190]
+Arguments: 1
+
+(15) AQEShuffleRead
+Input [7]: [arrondissement#50, count#141L, sum#142, count#143L, sum#144, count#145L, buf#190]
+Arguments: coalesced
+
+(16) ObjectHashAggregate
+Input [7]: [arrondissement#50, count#141L, sum#142, count#143L, sum#144, count#145L, buf#190]
+Keys [1]: [arrondissement#50]
+Functions [4]: [count(1), avg(distance_miles#46), avg(duree_s#47), percentile_approx(vitesse_mph#53, 0.5, 10000, 0, 0)]
+Aggregate Attributes [4]: [count(1)#126L, avg(distance_miles#46)#127, avg(duree_s#47)#128, percentile_approx(vitesse_mph#53, 0.5, 10000, 0, 0)#129]
+Results [5]: [arrondissement#50, count(1)#126L AS nb_trajets#116L, round(avg(distance_miles#46)#127, 3) AS distance_moyenne_miles#117, round((avg(duree_s#47)#128 / 60.0), 2) AS duree_moyenne_min#118, round(percentile_approx(vitesse_mph#53, 0.5, 10000, 0, 0)#129, 2) AS vitesse_mediane_mph#119]
+
+(17) Exchange
+Input [5]: [arrondissement#50, nb_trajets#116L, distance_moyenne_miles#117, duree_moyenne_min#118, vitesse_mediane_mph#119]
+Arguments: rangepartitioning(nb_trajets#116L DESC NULLS LAST, 2), ENSURE_REQUIREMENTS, [plan_id=946]
+
+(18) ShuffleQueryStage
+Output [5]: [arrondissement#50, nb_trajets#116L, distance_moyenne_miles#117, duree_moyenne_min#118, vitesse_mediane_mph#119]
+Arguments: 2
+
+(19) AQEShuffleRead
+Input [5]: [arrondissement#50, nb_trajets#116L, distance_moyenne_miles#117, duree_moyenne_min#118, vitesse_mediane_mph#119]
+Arguments: coalesced
+
+(20) Sort [codegen id : 3]
+Input [5]: [arrondissement#50, nb_trajets#116L, distance_moyenne_miles#117, duree_moyenne_min#118, vitesse_mediane_mph#119]
+Arguments: [nb_trajets#116L DESC NULLS LAST], true, 0
+
+(21) ResultQueryStage
+Output [5]: [arrondissement#50, nb_trajets#116L, distance_moyenne_miles#117, duree_moyenne_min#118, vitesse_mediane_mph#119]
+Arguments: 3
+
+(22) Filter
+Input [3]: [Start_Zone#6L, Trip_Distance#7, Trip_Duration#8L]
+Condition : (((((isnotnull(Start_Zone#6L) AND isnotnull(Trip_Distance#7)) AND isnotnull(Trip_Duration#8L)) AND isnotnull(cast(Start_Zone#6L as int))) AND (Trip_Distance#7 > 0.0)) AND (cast(Trip_Duration#8L as double) > 0.0))
+
+(23) Project
+Output [3]: [cast(Start_Zone#6L as int) AS zone_id#45, Trip_Distance#7 AS distance_miles#46, cast(Trip_Duration#8L as double) AS duree_s#47]
+Input [3]: [Start_Zone#6L, Trip_Distance#7, Trip_Duration#8L]
+
+(24) Project
+Output [4]: [zone_id#45, distance_miles#46, duree_s#47, round((distance_miles#46 / (duree_s#47 / 3600.0)), 2) AS vitesse_mph#53]
+Input [3]: [zone_id#45, distance_miles#46, duree_s#47]
+
+(25) BroadcastExchange
+Input [4]: [zone_id#45, distance_miles#46, duree_s#47, vitesse_mph#53]
+Arguments: HashedRelationBroadcastMode(List(cast(input[0, int, true] as bigint)),false), [plan_id=811]
+
+(26) Filter
+Input [2]: [LocationID#26, Borough#27]
+Condition : isnotnull(cast(LocationID#26 as int))
+
+(27) Project
+Output [2]: [cast(LocationID#26 as int) AS zone_id#49, Borough#27 AS arrondissement#50]
+Input [2]: [LocationID#26, Borough#27]
+
+(28) BroadcastHashJoin
+Left keys [1]: [zone_id#45]
+Right keys [1]: [zone_id#49]
+Join type: Inner
+Join condition: None
+
+(29) Project
+Output [4]: [distance_miles#46, duree_s#47, vitesse_mph#53, arrondissement#50]
+Input [6]: [zone_id#45, distance_miles#46, duree_s#47, vitesse_mph#53, zone_id#49, arrondissement#50]
+
+(30) ObjectHashAggregate
+Input [4]: [distance_miles#46, duree_s#47, vitesse_mph#53, arrondissement#50]
+Keys [1]: [arrondissement#50]
+Functions [4]: [partial_count(1), partial_avg(distance_miles#46), partial_avg(duree_s#47), partial_percentile_approx(vitesse_mph#53, 0.5, 10000, 0, 0)]
+Aggregate Attributes [6]: [count#135L, sum#136, count#137L, sum#138, count#139L, buf#189]
+Results [7]: [arrondissement#50, count#141L, sum#142, count#143L, sum#144, count#145L, buf#190]
+
+(31) Exchange
+Input [7]: [arrondissement#50, count#141L, sum#142, count#143L, sum#144, count#145L, buf#190]
+Arguments: hashpartitioning(arrondissement#50, 2), ENSURE_REQUIREMENTS, [plan_id=816]
+
+(32) ObjectHashAggregate
+Input [7]: [arrondissement#50, count#141L, sum#142, count#143L, sum#144, count#145L, buf#190]
+Keys [1]: [arrondissement#50]
+Functions [4]: [count(1), avg(distance_miles#46), avg(duree_s#47), percentile_approx(vitesse_mph#53, 0.5, 10000, 0, 0)]
+Aggregate Attributes [4]: [count(1)#126L, avg(distance_miles#46)#127, avg(duree_s#47)#128, percentile_approx(vitesse_mph#53, 0.5, 10000, 0, 0)#129]
+Results [5]: [arrondissement#50, count(1)#126L AS nb_trajets#116L, round(avg(distance_miles#46)#127, 3) AS distance_moyenne_miles#117, round((avg(duree_s#47)#128 / 60.0), 2) AS duree_moyenne_min#118, round(percentile_approx(vitesse_mph#53, 0.5, 10000, 0, 0)#129, 2) AS vitesse_mediane_mph#119]
+
+(33) Exchange
+Input [5]: [arrondissement#50, nb_trajets#116L, distance_moyenne_miles#117, duree_moyenne_min#118, vitesse_mediane_mph#119]
+Arguments: rangepartitioning(nb_trajets#116L DESC NULLS LAST, 2), ENSURE_REQUIREMENTS, [plan_id=819]
+
+(34) Sort
+Input [5]: [arrondissement#50, nb_trajets#116L, distance_moyenne_miles#117, duree_moyenne_min#118, vitesse_mediane_mph#119]
+Arguments: [nb_trajets#116L DESC NULLS LAST], true, 0
+
+(35) AdaptiveSparkPlan
+Output [5]: [arrondissement#50, nb_trajets#116L, distance_moyenne_miles#117, duree_moyenne_min#118, vitesse_mediane_mph#119]
+Arguments: isFinalPlan=true
+
+
+
+=== 9. Écriture Parquet puis relecture ===
+[Stage 47:>                                                         (0 + 1) / 1]                                                                                [Stage 49:>                                                         (0 + 1) / 1]                                                                                root
+ |-- arrondissement: string (nullable = true)
+ |-- nb_trajets: long (nullable = true)
+ |-- distance_moyenne_miles: double (nullable = true)
+ |-- duree_moyenne_min: double (nullable = true)
+ |-- vitesse_mediane_mph: double (nullable = true)
+
++--------------+----------+----------------------+-----------------+-------------------+
+|arrondissement|nb_trajets|distance_moyenne_miles|duree_moyenne_min|vitesse_mediane_mph|
++--------------+----------+----------------------+-----------------+-------------------+
+|Manhattan     |2         |2.25                  |9.17             |13.5               |
+|EWR           |1         |2.5                   |10.0             |15.0               |
+|Queens        |1         |4.0                   |15.0             |16.0               |
++--------------+----------+----------------------+-----------------+-------------------+
+
+
+=== Bilan ===
+{
+  "trajets_lus": 6,
+  "zones_lues": 265,
+  "trajets_apres_filtre": 5,
+  "trajets_filtres": 1,
+  "zones_distinctes": 265,
+  "cle_zones_unique": true,
+  "trajets_sans_zone": 1,
+  "trajets_apres_jointure": 4,
+  "jointure_sans_multiplication": true,
+  "partitions_entree": 1,
+  "partitions_agregat": 1,
+  "lignes_parquet": 3,
+  "somme_nb_trajets_parquet": 4,
+  "parquet_coherent": true
+}
+>> M5 préparation publication/ (version 1)
+{"version": 1, "fichiers": ["README.md", "agregat_arrondissements.parquet"], "lignes": [{"arrondissement": "Manhattan", "nb_trajets": 2, "distance_moyenne_miles": 2.25}, {"arrondissement": "EWR", "nb_trajets": 1, "distance_moyenne_miles": 2.5}, {"arrondissement": "Queens", "nb_trajets": 1, "distance_moyenne_miles": 4.0}], "lus": 6, "rejetes": 1, "sans_zone": 1, "gardes": 4}

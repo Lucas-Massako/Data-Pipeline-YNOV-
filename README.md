@@ -1,4 +1,4 @@
-# NovaMarket — S1, S2 et S3 (SQL relationnel, SQL avancé et benchmark, ingestion asynchrone)
+# NovaMarket — S1 à S5 (SQL, benchmark, ingestion asynchrone, dbt, volumétrie)
 
 **Auteur :** Lucas Massako — M1 Data IA, YNOV
 
@@ -21,6 +21,26 @@ python -m pip install -r requirements-v3.txt
 bash run_ingestion.sh   # démarre l'API, lance les collectes clean, séquentielle, panne et atelier
 ```
 
+S4 (chargement PostgreSQL et dbt ; mot de passe PostgreSQL demandé une fois, jamais écrit) :
+
+```bash
+bash run_s4.sh
+```
+
+Environnement utilisé pour S4 et S5 : venv hors du Bureau synchronisé par iCloud (`~/venvs/novamarket`, Python 3.12.4) et Java 21 dans `~/jdk` :
+
+```bash
+source ~/venvs/novamarket/bin/activate
+export JAVA_HOME="$HOME/jdk/jdk-21.0.13.1+2/Contents/Home"
+```
+
+S5 (Java 21 requis ; publication Hub manuelle, voir S5 M5) :
+
+```bash
+python -m pip install -r requirements-v3.txt -r volumetrie/requirements.txt
+bash run_s5.sh 20000    # nombre de lignes parcourues en streaming
+```
+
 Chaque script écrit ses résultats dans `preuves/`. `run_s1.sh` recrée les schémas `reception` et `metier` : il faut ensuite relancer `run_s2.sh`.
 
 | Fichier | Contenu |
@@ -41,6 +61,14 @@ Chaque script écrit ses résultats dans `preuves/`. `run_s1.sh` recrée les sch
 | `ingestion/src/validation.py` | Règles de validation et motifs de rejet |
 | `ingestion/src/journalisation.py` | Journal et bilan d'exécution |
 | `ingestion/data/` | `raw/`, `valid/`, `rejected/`, `journaux/` (par run) ; lot publié : `valid/offres.jsonl` |
+| `transformation/chargement_postgres.py` | Chargeur des offres dans le schéma `fournisseur` |
+| `transformation/dbt/` | Projet dbt : sources, staging, intermediate, mart, tests |
+| `s4/Dockerfile`, `s4/travail/profil/profiles.yml` | Image et profil du service `dbt` (sans secret) |
+| `sql/11_controles_dbt.sql` | Contrôles du chargement et des volumes dbt |
+| `volumetrie/FICHE_SOURCE.md` | Fiche source NYC TaxiData |
+| `volumetrie/streaming/extraire.py`, `controler.py` | Streaming borné Hugging Face, contrôle qualité |
+| `volumetrie/spark/pipeline.py` | Pipeline PySpark |
+| `volumetrie/publication/preparer.py`, `publication/` | Dataset Card et données publiées sur le Hub |
 
 ## État du projet
 
@@ -49,6 +77,8 @@ Chaque script écrit ses résultats dans `preuves/`. `run_s1.sh` recrée les sch
 | S1 | M1 à M5, A1 | Terminé |
 | S2 | M1 à M4, A1 | Terminé |
 | S3 | M1 à M4 | Terminé |
+| S4 | M1 à M5 | Terminé |
+| S5 | M1 à M5 | M1 à M4 terminés ; publication Hub (M5) à faire avec un compte Hugging Face |
 
 ---
 
@@ -281,3 +311,174 @@ Bilan du scénario `atelier` : 6 pages, 24 offres vues, 20 valides, 4 rejetées,
 | 3 | 2 | O010 | price_cents non entier |
 | 5 | 1 | O017 | product_id absent du catalogue |
 | 6 | 4 | O001 | doublon de offer_id |
+
+---
+
+# S4 — Chargement PostgreSQL et dbt
+
+## M1 — Chargement des données valides
+
+`transformation/chargement_postgres.py` lit `ingestion/data/valid/offres.jsonl` (ou `--secours`) et écrit dans le schéma `fournisseur`, séparé des ventes `metier`.
+
+| Table | Grain / rôle | Clé |
+|---|---|---|
+| `fournisseur.offres_observations` | une offre observée un jour | (`offer_id`, `observed_on`) |
+| `fournisseur.fournisseurs` | référentiel F01, F02, F03 | `supplier_id` |
+| `fournisseur.chargements` | une exécution du chargeur (bilan) | `chargement_id` |
+| `fournisseur.rejets_chargement` | une ligne refusée, motif, contenu brut | (`chargement_id`, `ligne`) |
+
+Contrôles : champs requis, `supplier_id` dans le référentiel, `product_id` dans `metier.products` (clé étrangère), prix et unités entiers ≥ 0 (centimes), devise `EUR`, date ISO, doublon de clé dans le lot. Un lot = une transaction ; rejeu par `INSERT … ON CONFLICT … DO UPDATE … WHERE IS DISTINCT FROM`.
+
+| Passage | Lues | Insérées | Mises à jour | Inchangées | Rejetées | En base |
+|---|---:|---:|---:|---:|---:|---:|
+| 1er passage | 20 | 20 | 0 | 0 | 0 | 20 |
+| 2e passage, même lot | 20 | 0 | 0 | 20 | 0 | 20 |
+| `--simuler-echec` | 20 | — | — | — | — | inchangé (transaction annulée) |
+
+Preuves : `preuves/12_chargement.txt`, section 1 de `preuves/15_controles_dbt.txt`.
+
+## M2 — Sources dbt
+
+Projet unique `transformation/dbt/` (`novamarket_dbt`), monté sur `/projet`. Sources déclarées dans `models/staging/_sources.yml` : `fournisseur.offres_observations`, `fournisseur.fournisseurs`, `fournisseur.chargements`, `metier.products`, `metier.categories`, `metier.orders`, `metier.order_items`.
+
+## M3 — Staging (vues, schéma `dbt_dev_staging`)
+
+| Modèle | Grain |
+|---|---|
+| `stg_fournisseur__offres` | une offre observée un jour (noms en français, prix en euros ajouté) |
+| `stg_metier__produits` | un produit, avec sa catégorie |
+| `stg_metier__lignes_vendues` | une ligne d'article d'une commande `completed` |
+
+## M4 — Intermediate et mart
+
+| Modèle | Matérialisation | Grain | Jointures |
+|---|---|---|---|
+| `int_offres_enrichies` | éphémère (compilé en CTE) | une offre observée un jour | offres → produits (1-1) ; ventes agrégées par produit avant jointure (1-1) |
+| `mart_offres_par_produit` | table (`dbt_dev_marts`) | un produit × une date d'observation | — |
+
+Colonnes du mart : `nb_offres`, `nb_fournisseurs`, `unites_disponibles`, `meilleur_prix_cents`, `meilleur_fournisseur_id`, `prix_vente_moyen_cents`, `marge_unitaire_cents`, `unites_vendues_s1`.
+
+## M5 — Vérification de la chaîne
+
+`dbt debug`, `compile`, `run`, `build` : 5 modèles, 22 tests, `PASS=26 ERROR=0` (`preuves/13_dbt.txt`). Requête compilée du mart : `preuves/14_mart_compile.sql`.
+
+| Niveau | Lignes | Grain |
+|---|---:|---|
+| source `fournisseur.offres_observations` | 20 | offre × jour |
+| staging `stg_fournisseur__offres` | 20 | offre × jour |
+| mart `mart_offres_par_produit` | 20 | produit × jour |
+| somme `nb_offres` du mart | 20 | = staging |
+
+Multiplication évitée : offres × lignes vendues sans pré-agrégation = 533 lignes ; avec ventes agrégées par produit = 20 lignes. Tests singuliers : `assert_mart_couvre_toutes_les_offres`, `assert_offres_cle_unique`, `assert_prix_positifs`.
+
+Exécution du 26/11/2026 sur le MacBook Air : journal des chargements 1 (20 insérées) et 2 (20 inchangées), `dbt build` PASS=26.
+
+Limite : le kit S4 ne contenait pas `s4/` ; `s4/Dockerfile` a été reconstitué (dbt-core 1.12.7, dbt-postgres 1.9.0).
+
+---
+
+# S5 — Hugging Face Datasets, streaming, PySpark, Hub
+
+## M1 — Fiche source
+
+`volumetrie/FICHE_SOURCE.md` : `DinoPonjevic/NYC_TaxiData`, révision `5941adbf8c0b9930e47002dc3103de3f9291360d`, 371 Parquet, 39 350 805 895 octets, partition `2024/yellow/yellow_tripdata_2024-01.parquet`, colonnes `Start_Zone` (code zone), `Trip_Distance` (miles), `Trip_Duration` (secondes), licence du miroir « unknown » (pas de republication des lignes).
+
+Mesure du 26/11/2026 : taille de la partition 41 899 074 octets (`acces.py --infos`).
+
+## M2 — Streaming borné
+
+`volumetrie/streaming/extraire.py` : `acces.ouvrir()` (`streaming=True`, révision épinglée, 3 colonnes), parcours borné par `--limite`, règle de validité (3 colonnes présentes, non nulles, numériques), itérateur fermé dans `finally`. Sorties : `volumetrie/sorties/extraction_<horodatage>.jsonl` et `.bilan.json` (parcourues, retenues, rejetées par motif).
+
+| Run du 26/11/2026 (`extraction_20261126113244`) | Valeur |
+|---|---:|
+| lignes parcourues | 20 000 |
+| retenues | 20 000 |
+| rejetées (valeur manquante ou non numérique) | 0 |
+| durée | 7,9 s |
+
+## M3 — Contrôle qualité
+
+`volumetrie/streaming/controler.py` :
+
+| Règle | Condition de rejet |
+|---|---|
+| R1 | `Start_Zone` hors 1–265 |
+| R2 | distance ≤ 0 ou > 100 miles |
+| R3 | durée ≤ 0 ou > 14 400 s |
+| R4 | vitesse > 100 mph |
+
+Sortie Spark : `extraction_<horodatage>.spark.jsonl` (types normalisés, `source_revision`, `source_partition`, `position_source`) et `.qualite.json` (avant / après par règle).
+
+| Bilan qualité | Lignes |
+|---|---:|
+| avant | 20 000 |
+| R2 distance ≤ 0 ou > 100 miles | 388 |
+| R3 durée ≤ 0 ou > 4 h | 31 |
+| R4 vitesse > 100 mph | 6 |
+| après | 19 575 |
+
+## M4 — Pipeline PySpark
+
+`volumetrie/spark/pipeline.py` : lecture JSONL et `zones.csv`, schémas, typage, filtre, `vitesse_mph`, unicité de `LocationID`, anti-jointure des non-appariés, jointure, effectifs avant/après, agrégat par arrondissement, partitions, `explain(mode="formatted")`, Parquet en `errorifexists`, relecture.
+
+Résultat sur l'extraction réelle (`agregat_20261126113144`) :
+
+| Étape | Lignes |
+|---|---:|
+| lues | 19 575 |
+| après filtre | 19 575 |
+| sans zone | 0 |
+| après jointure | 19 575 |
+| Parquet relu : lignes / somme `nb_trajets` | 7 / 19 575 |
+
+Partitions : 2 en entrée, 1 pour l'agrégat ; plan avec `BroadcastExchange` (petite table de zones diffusée) et `Exchange` (regroupement par arrondissement).
+
+| Arrondissement | Trajets | Distance moyenne (miles) | Durée moyenne (min) | Vitesse médiane (mph) |
+|---|---:|---:|---:|---:|
+| Manhattan | 18 763 | 2,761 | 14,90 | 10,45 |
+| Queens | 415 | 11,467 | 22,53 | 29,63 |
+| Brooklyn | 315 | 4,404 | 18,14 | 12,49 |
+| Unknown | 51 | 2,970 | 15,59 | 10,19 |
+| Bronx | 20 | 2,221 | 10,29 | 10,49 |
+| N/A | 10 | 3,064 | 5,48 | 29,03 |
+| Staten Island | 1 | 17,600 | 37,97 | 27,81 |
+
+Résultat sur le secours (`trajets_fictifs.jsonl`) :
+
+| Étape | Lignes |
+|---|---:|
+| lues | 6 |
+| après filtre (distance négative) | 5 |
+| sans zone (zone 999) | 1 |
+| après jointure | 4 |
+| Parquet relu (somme `nb_trajets`) | 4 |
+
+Clé `LocationID` : 265 zones, 265 distinctes.
+
+## M5 — Publication Hub
+
+`python volumetrie/publication/preparer.py --version 1` puis `--version 2` génèrent `publication/` : `README.md` (Dataset Card) et `agregat_arrondissements.parquet`, agrégat des trajets fictifs du secours uniquement.
+
+| Version | Contenu |
+|---|---|
+| v1 | `arrondissement`, `nb_trajets`, `distance_moyenne_miles` |
+| v2 | ajout `duree_moyenne_min`, `vitesse_moyenne_mph` |
+
+Commandes (token saisi dans `hf auth login`, jamais dans le dépôt) :
+
+```bash
+hf auth login
+repo="VOTRE_COMPTE/novamarket-s5-exercice"
+hf repo create "$repo" --repo-type dataset --private
+python volumetrie/publication/preparer.py --version 1
+hf upload "$repo" ./publication . --repo-type dataset --commit-message "v1 : premier jeu vérifié"
+python volumetrie/publication/preparer.py --version 2
+hf upload "$repo" ./publication . --repo-type dataset --commit-message "v2 : ajout durée et vitesse moyennes"
+hf download "$repo" README.md --repo-type dataset --revision "SHA_V1"
+hf download "$repo" README.md --repo-type dataset --revision "SHA_V2"
+```
+
+| Révision | SHA |
+|---|---|
+| v1 | à compléter |
+| v2 | à compléter |

@@ -1,0 +1,12 @@
+version: 2
+
+models:
+  - name: mart_offres_par_produit
+    description: >
+      Grain = un produit pour une date d'observation. Meilleure offre fournisseur,
+      nombre d'offres, stock disponible et comparaison au prix de vente moyen NovaMarket.
+    columns:
+      - name: produit_id
+        tests: [not_null]
+      - name: nb_offres
+        tests: [not_null]

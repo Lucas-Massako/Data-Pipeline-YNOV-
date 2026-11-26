@@ -1,0 +1,37 @@
+=== 1. Journal des chargements (M1) ===
+ chargement_id |              fichier              | lignes_lues | inserees | mises_a_jour | inchangees | rejetees |        debut        
+---------------+-----------------------------------+-------------+----------+--------------+------------+----------+---------------------
+             1 | ingestion/data/valid/offres.jsonl |          20 |       20 |            0 |          0 |        0 | 2026-11-26 10:25:13
+             2 | ingestion/data/valid/offres.jsonl |          20 |        0 |            0 |         20 |        0 | 2026-11-26 10:25:13
+(2 rows)
+
+=== 2. Volumes source -> staging -> mart (M5) ===
+                     niveau                     | lignes |     grain      
+------------------------------------------------+--------+----------------
+ source fournisseur.offres_observations         |     20 | offre x jour
+ staging stg_fournisseur__offres                |     20 | offre x jour
+ mart mart_offres_par_produit (lignes)          |     20 | produit x jour
+ mart mart_offres_par_produit (somme nb_offres) |     20 | doit = staging
+(4 rows)
+
+=== 3. Multiplication évitée : jointure offres x lignes vendues SANS pré-agrégation ===
+                     calcul                      | lignes 
+-------------------------------------------------+--------
+ offres                                          |     20
+ offres JOIN lignes vendues (FAUX)               |    533
+ offres JOIN ventes agrégées par produit (JUSTE) |     20
+(3 rows)
+
+=== 4. Quelques lignes du mart ===
+ produit_id | date_observation |  sku   | categorie_nom | nb_offres | meilleur_fournisseur_id | meilleur_prix_cents | prix_vente_moyen_cents | marge_unitaire_cents | unites_disponibles 
+------------+------------------+--------+---------------+-----------+-------------------------+---------------------+------------------------+----------------------+--------------------
+          2 | 2026-11-24       | NM-002 | Rangement     |         1 | F02                     |                 750 |                    750 |                    0 |                  4
+          3 | 2026-11-24       | NM-003 | Rangement     |         1 | F03                     |                 875 |                    875 |                    0 |                  6
+          4 | 2026-11-24       | NM-004 | Rangement     |         1 | F01                     |                1000 |                   1000 |                    0 |                  8
+          6 | 2026-11-24       | NM-006 | Outillage     |         1 | F03                     |                1250 |                   1250 |                    0 |                 12
+          7 | 2026-11-24       | NM-007 | Outillage     |         1 | F01                     |                1375 |                   1375 |                    0 |                 14
+          8 | 2026-11-24       | NM-008 | Outillage     |         1 | F02                     |                1500 |                   1500 |                    0 |                 16
+          9 | 2026-11-24       | NM-009 | Cuisine       |         1 | F03                     |                1625 |                   1625 |                    0 |                 18
+          1 | 2026-11-24       | NM-001 | Rangement     |         1 | F01                     |                 625 |                    625 |                    0 |                  2
+(8 rows)
+
