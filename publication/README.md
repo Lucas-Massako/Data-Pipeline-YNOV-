@@ -27,6 +27,8 @@ Grain : **un arrondissement** (Borough). Fichier : `agregat_arrondissements.parq
 | `arrondissement` | texte | arrondissement TLC (`Borough` de zones.csv) |
 | `nb_trajets` | entier | nombre de trajets fictifs retenus |
 | `distance_moyenne_miles` | réel | distance moyenne, en miles |
+| `duree_moyenne_min` | réel | durée moyenne, en minutes |
+| `vitesse_moyenne_mph` | réel | distance totale / durée totale, en miles par heure |
 
 Pas de valeur manquante. Pas de dimension temporelle (les trajets fictifs ne sont pas datés).
 
@@ -36,8 +38,9 @@ Pas de valeur manquante. Pas de dimension temporelle (les trajets fictifs ne son
   sans zone connue (non appariées à zones.csv) : 1 ; retenues : 4.
 - Clé de jointure `Start_Zone` = `LocationID`, unique dans zones.csv (265 zones).
 - Limite : 6 trajets fictifs seulement ; les moyennes n'ont aucune valeur statistique.
-- Reproduction, depuis `novamarket/` : `python volumetrie/publication/preparer.py --version 1`.
+- Reproduction, depuis `novamarket/` : `python volumetrie/publication/preparer.py --version 2`.
 
 ## Révisions
 
 - **v1** : agrégat initial (nb_trajets, distance moyenne) par arrondissement.
+- **v2** : ajout des colonnes `duree_moyenne_min` et `vitesse_moyenne_mph` ; lignes, filtres et grain inchangés. Motif : permettre la comparaison des durées en S6.

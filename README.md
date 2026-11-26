@@ -78,7 +78,7 @@ Chaque script écrit ses résultats dans `preuves/`. `run_s1.sh` recrée les sch
 | S2 | M1 à M4, A1 | Terminé |
 | S3 | M1 à M4 | Terminé |
 | S4 | M1 à M5 | Terminé |
-| S5 | M1 à M5 | M1 à M4 terminés ; publication Hub (M5) à faire avec un compte Hugging Face |
+| S5 | M1 à M5 | Terminé |
 
 ---
 
@@ -478,7 +478,11 @@ hf download "$repo" README.md --repo-type dataset --revision "SHA_V1"
 hf download "$repo" README.md --repo-type dataset --revision "SHA_V2"
 ```
 
-| Révision | SHA |
-|---|---|
-| v1 | à compléter |
-| v2 | à compléter |
+Dépôt privé : https://huggingface.co/datasets/Massako1/novamarket-s5-exercice (accès à accorder au formateur).
+
+| Révision | SHA | Vérification du téléchargement |
+|---|---|---|
+| v1 « premier jeu vérifié » | `d38da0b6d987d334712fb20185fc32a73c777208` | README v1, Parquet 3 lignes × 3 colonnes |
+| v2 « ajout durée et vitesse moyennes » | `7752f19b05eac483e515478d739926af3d9d1d74` | README v2, Parquet 3 lignes × 5 colonnes |
+
+Changement v1 → v2 : ajout de `duree_moyenne_min` et `vitesse_moyenne_mph` ; lignes, filtres et grain inchangés. Preuve : `preuves/17_hub.txt`.
